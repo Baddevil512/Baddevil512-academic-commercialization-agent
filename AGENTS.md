@@ -312,6 +312,10 @@ is identity-only. Preserve aggregate slot/native-intent distinction, exact
 preview identity and NQ04's unconditional no-search rule. Mechanical faults
 stop; valid reference misses remain visible and do not trigger repair/retry.
 NQ03 is already a known development case/separator challenge, not held-out data.
+NQ is now [closed after four native requests](docs/results-2026-09-27-candidate-query-synthetic-canary.md):
+mechanics 4/4, positive coverage 1/3, explicit decline 1/1. The long English
+proposals missed literal lookup; do not repair/replay the batch or treat zero
+visible distractors from empty results as precision evidence. No production admission.
 
 The [production saved-source wrapper](docs/operating-guide.md#optional-saved-source-locator)
 is a distinct default-off successor. Its new `/source-locator` page and API paths

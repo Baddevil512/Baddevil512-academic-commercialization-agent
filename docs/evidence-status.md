@@ -58,17 +58,20 @@ connection. Mechanical controls do not establish unseen query quality, semantic
 support or user benefit; the viewer and gated locator above are unchanged.
 
 A distinct [Qwen query wire adapter](prereg-2026-09-26-candidate-query-qwen-transport.md)
-is prepared around that callback, with a new one-request ledger and question-only
-native request. Fake-key, intercepted HTTP is its verification boundary, not a
-new provider observation. No saved source metadata/text is added to the request,
-and no paid allowance, live runner or production connection follows.
+has a separate one-request ledger and question-only native request. Its initial
+fake-key/intercepted-HTTP verification remains distinct from the NQ provider
+observation below. No saved source metadata/text enters the request, and the
+adapter alone supplies no live allowance or production connection.
 
 Its separate [NQ synthetic batch](prereg-2026-09-26-candidate-query-synthetic-canary.md)
-freezes four new questions and twelve local fictional sources. Default operation
-checks identity only. Three positive candidate-coverage controls and an explicit
-cancellation are separate from mechanical/accounting checks; references have
-context-limited LLM review, not human gold. The native lane remains `not_run`.
-The known NQ03 case/separator diagnostic miss is retained, not repaired or hidden.
+is now [closed with a failed coverage gate](results-2026-09-27-candidate-query-synthetic-canary.md).
+Four native requests passed mechanical/accounting checks, but only one of three
+positive questions reached an acceptable candidate; the explicit no-search
+decline passed. The English keyword combinations missed the unchanged literal
+search contract. Reported use was 1,996 tokens, estimated USD 0.001421807 under
+frozen rates, not a bill. These synthetic, LLM-reviewed development references
+are not unseen accuracy or human gold. No retry, repair or production activation
+followed; the pre-live diagnostic and actual native misses remain distinct.
 
 Planning/translation now shares complete provider configuration with the main
 factory; fixed BYOK destinations and narrow credential/content-safe diagnostics
