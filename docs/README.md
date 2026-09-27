@@ -21,6 +21,7 @@
 | How can a query propose local candidates without reading or answering? | [Offline candidate-search contract](saved-source-candidate-search.md) |
 | How is its native query wire prepared without a live allowance? | [Separate Qwen query protocol](prereg-2026-09-26-candidate-query-qwen-transport.md) |
 | What did the synthetic native query controls establish? | [NQ protocol](prereg-2026-09-26-candidate-query-synthetic-canary.md) and [failed coverage result](results-2026-09-27-candidate-query-synthetic-canary.md) |
+| What happened to the four positive saved-source native controls? | [Closed development result and provenance limits](results-2026-09-27-positive-source-selection-closeout.md) |
 | Did nearby ordered terms improve the unchanged candidate baseline? | [Offline rule](prereg-2026-09-27-ordered-window-conjunction-offline.md) and [zero-gain result](results-2026-09-27-ordered-window-conjunction-offline.md) |
 | What does the isolated saved-source HTTP/browser entry protect? | [Saved-source entry contract](saved-source-entry.md) |
 | How is saved-source paid admission prepared without activating it? | [Backend controller and receipts](saved-source-paid-controller.md) |
