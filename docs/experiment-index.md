@@ -1,5 +1,9 @@
 # Experiment archive index
 
+- [2026-09-27 NQ native query result](results-2026-09-27-candidate-query-synthetic-canary.md): four requests, mechanics 4/4, positive coverage 1/3 and explicit decline 1/1; closed failed development batch, USD 0.001421807 frozen-rate estimate, no production admission.
+
+- [2026-09-26 NQ synthetic query protocol](prereg-2026-09-26-candidate-query-synthetic-canary.md): pre-live question-only controls, separate candidate coverage/cancellation/mechanical gates and durable aggregate slots; known development miss retained and later native results recorded separately, no production activation.
+
 - [2026-09-26 candidate-query Qwen wire preparation](prereg-2026-09-26-candidate-query-qwen-transport.md): question-only native query proposals, exact body/ledger binding, one-request accounting and intercepted-HTTP validation; no real key, paid allowance, source transfer, answer generation or production activation.
 
 - [2026-09-26 bounded production saved-source acceptance](results-2026-09-26-production-source-locator-acceptance.md): one native selection delivered exact saved text; after execution closure and redeployment, one manual GET preserved the receipt and accounting. USD 0.000764436 frozen-rate estimate, original POST-body observer limitation, not unseen accuracy or permanent enablement.

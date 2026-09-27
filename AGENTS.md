@@ -306,6 +306,17 @@ query versus text-JSON admission and unknown usage. It is network-capable only
 when explicitly invoked; intercepted tests and scope labels grant no live call,
 new data transfer or production registration. Do not reuse a closed batch.
 
+The [NQ synthetic query protocol](docs/prereg-2026-09-26-candidate-query-synthetic-canary.md)
+uses four new question-only controls and a separate fixed output. Its default
+is identity-only. Preserve aggregate slot/native-intent distinction, exact
+preview identity and NQ04's unconditional no-search rule. Mechanical faults
+stop; valid reference misses remain visible and do not trigger repair/retry.
+NQ03 is already a known development case/separator challenge, not held-out data.
+NQ is now [closed after four native requests](docs/results-2026-09-27-candidate-query-synthetic-canary.md):
+mechanics 4/4, positive coverage 1/3, explicit decline 1/1. The long English
+proposals missed literal lookup; do not repair/replay the batch or treat zero
+visible distractors from empty results as precision evidence. No production admission.
+
 The [production saved-source wrapper](docs/operating-guide.md#optional-saved-source-locator)
 is a distinct default-off successor. Its new `/source-locator` page and API paths
 must preserve owner-code authorization, explicit question/catalog transfer

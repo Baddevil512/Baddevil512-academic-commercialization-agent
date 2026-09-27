@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "cohort_id": "candidate_query_synthetic_development_v1",
+  "origin": "author_generated_synthetic",
+  "reference_status": "llm_label_blinded_context_limited_reviewed",
+  "source_metadata": {
+    "group": "academic",
+    "publisher": "Synthetic NQ controls",
+    "source_type": "synthetic_control",
+    "origin": "unknown",
+    "accessed_date": "2026-09-26"
+  },
+  "cases": [
+    {
+      "case_id": "NQ01",
+      "question": "Which saved studies discuss acoustic emission for inspecting pressurized storage tanks?",
+      "sources": [
+        {
+          "source_id": "A1",
+          "title": "Acoustic emission monitoring of pressurized storage tanks",
+          "summary": "A synthetic sensor study uses acoustic emission events during a pressure test to locate wall cracks in storage tanks."
+        },
+        {
+          "source_id": "A2",
+          "title": "Temperature alarms for storage facilities",
+          "summary": "This synthetic note compares warehouse heat alarms and does not investigate tank-wall cracks."
+        },
+        {
+          "source_id": "A3",
+          "title": "Listening for tank-wall damage during pressure cycling",
+          "summary": "The synthetic experiment records acoustic emission events from damaged pressurized tanks during repeated loading."
+        }
+      ],
+      "expected_action": "query",
+      "acceptable_ids": [
+        "A1",
+        "A3"
+      ]
+    },
+    {
+      "case_id": "NQ02",
+      "question": "查一下保存资料中关于低温再生的研究。",
+      "sources": [
+        {
+          "source_id": "A1",
+          "title": "退役电池正极修复方案",
+          "summary": "这是一条合成研究摘要：低温再生用于修复磷酸铁锂电池正极，并比较修复前后的容量保持率。"
+        },
+        {
+          "source_id": "A2",
+          "title": "高温焙烧处理流程",
+          "summary": "这条合成记录讨论高温焙烧回收金属，不涉及低温修复路线。"
+        },
+        {
+          "source_id": "A3",
+          "title": "低温贮存影响观察",
+          "summary": "这条合成记录研究冷藏环境对包装材料的影响，不涉及电池修复。"
+        }
+      ],
+      "expected_action": "query",
+      "acceptable_ids": [
+        "A1"
+      ]
+    },
+    {
+      "case_id": "NQ03",
+      "question": "Which saved material discusses laser-induced breakdown spectroscopy for sorting scrap metal?",
+      "sources": [
+        {
+          "source_id": "A1",
+          "title": "Laser induced breakdown spectroscopy for scrap sorting",
+          "summary": "A synthetic sorting experiment classifies mixed scrap metals using this optical measurement method."
+        },
+        {
+          "source_id": "A2",
+          "title": "Laser-induced breakdown spectroscopy for soil testing",
+          "summary": "This synthetic study estimates soil nutrients and contains no recycling or scrap-sorting experiment."
+        },
+        {
+          "source_id": "A3",
+          "title": "Magnetic separation of scrap metal",
+          "summary": "A synthetic comparison of magnetic sorting routes without optical spectroscopy."
+        }
+      ],
+      "expected_action": "query",
+      "acceptable_ids": [
+        "A1"
+      ]
+    },
+    {
+      "case_id": "NQ04",
+      "question": "不要检索任何保存资料，我要取消这次问题。",
+      "sources": [
+        {
+          "source_id": "A1",
+          "title": "Synthetic hydrogel manufacturing note",
+          "summary": "An invented preparation note."
+        },
+        {
+          "source_id": "A2",
+          "title": "Synthetic adhesive recycling note",
+          "summary": "An invented recycling note."
+        },
+        {
+          "source_id": "A3",
+          "title": "Synthetic thermal storage note",
+          "summary": "An invented storage note."
+        }
+      ],
+      "expected_action": "decline",
+      "acceptable_ids": []
+    }
+  ]
+}
