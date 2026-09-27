@@ -63,6 +63,13 @@ native request. Fake-key, intercepted HTTP is its verification boundary, not a
 new provider observation. No saved source metadata/text is added to the request,
 and no paid allowance, live runner or production connection follows.
 
+Its separate [NQ synthetic batch](prereg-2026-09-26-candidate-query-synthetic-canary.md)
+freezes four new questions and twelve local fictional sources. Default operation
+checks identity only. Three positive candidate-coverage controls and an explicit
+cancellation are separate from mechanical/accounting checks; references have
+context-limited LLM review, not human gold. The native lane remains `not_run`.
+The known NQ03 case/separator diagnostic miss is retained, not repaired or hidden.
+
 Planning/translation now shares complete provider configuration with the main
 factory; fixed BYOK destinations and narrow credential/content-safe diagnostics
 are offline-tested. Historical node usage totals still exclude auxiliary calls.
