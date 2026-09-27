@@ -1,5 +1,7 @@
 # Experiment archive index
 
+- [2026-09-27 positive saved-source selection closeout](results-2026-09-27-positive-source-selection-closeout.md): four existing native requests, mechanics 4/4, development-reference agreement 3/4, three exact saved-text deliveries and one decline; USD 0.003559650 frozen-rate estimate, reference-aware post hoc LLM audit, closed failed batch and immutable preparation reference rather than a new main-branch executor.
+
 - [2026-09-27 ordered-window offline rule](prereg-2026-09-27-ordered-window-conjunction-offline.md) and [comparison result](results-2026-09-27-ordered-window-conjunction-offline.md): fixed queries, old and combined coverage 1/11, zero additions; failed development gate, uncertain reference and early self-test computation retained, isolated reproduction archive, no provider calls or production change.
 
 - [2026-09-27 NQ native query result](results-2026-09-27-candidate-query-synthetic-canary.md): four requests, mechanics 4/4, positive coverage 1/3 and explicit decline 1/1; closed failed development batch, USD 0.001421807 frozen-rate estimate, no production admission.

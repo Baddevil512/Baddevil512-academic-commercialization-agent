@@ -125,4 +125,10 @@ The separate [Qwen query wire preparation](prereg-2026-09-26-candidate-query-qwe
 implements that callback contract with an explicit key and a new one-request
 journal. It is tested using fake keys and intercepted HTTP, not enabled here
 or in production. Its model receives only the question and fixed controls,
-never the snapshot or resulting candidates; native quality remains untested.
+never the snapshot or resulting candidates. The subsequent
+[NQ native development batch](results-2026-09-27-candidate-query-synthetic-canary.md)
+completed four mechanical checks but covered only one of three positive cases;
+the explicit no-search control passed. That closed failed batch establishes
+neither unseen quality nor production admission. The later
+[ordered-window offline comparison](results-2026-09-27-ordered-window-conjunction-offline.md)
+also failed its gain gate and does not change this library's contract.

@@ -292,6 +292,12 @@ See the [ingress/history/finalization contract](docs/results-2026-09-08-upload-h
 
 ## Tool Calling: do not turn experimental code into production by accident
 
+The [positive saved-source native development batch is closed](docs/results-2026-09-27-positive-source-selection-closeout.md):
+4/4 mechanical checks, 3/4 frozen reference matches and one title-only decline.
+Its immutable preparation revision remains outside main; do not import its
+runner merely to reopen this occupied output or treat a post hoc LLM audit as
+blind validation. No new allowance or production activation follows.
+
 The [offline candidate-search library](docs/saved-source-candidate-search.md)
 keeps literal results and lexical-separator additions separate. Its one explicit
 query callback receives no snapshot/catalog; it is trusted synchronous code,

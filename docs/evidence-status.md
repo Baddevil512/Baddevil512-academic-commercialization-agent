@@ -1,8 +1,10 @@
 # Current evidence status
 
-Snapshot for the documentation consolidation on 2026-09-05, based on public
-main `0fdaa76a107cf034c16c1ffa6e3ae623e4c63fe2`. This page separates implemented
-contracts from observed behaviour and from claims that have not been established.
+Current ledger, updated 2026-09-27. The initial documentation consolidation
+used public main `0fdaa76a107cf034c16c1ffa6e3ae623e4c63fe2` on 2026-09-05;
+its dated baseline is historical, not the identity of every later entry.
+This page separates implemented contracts from observed behaviour and claims
+that have not been established.
 It does not change an experiment's result, threshold or authorization.
 
 ## Production capability
@@ -41,6 +43,16 @@ observer; comparison used the delivered DOM and subsequent actual GET body.
 This is one prepared production acceptance, not unseen accuracy or user value.
 Execution is again disabled with zero feature budgets; the earlier failed pilot
 and all isolated batch limits remain unchanged.
+
+A separate [positive saved-source development batch is closed](results-2026-09-27-positive-source-selection-closeout.md):
+four native title-only selections passed mechanical checks, but matched only
+3/4 frozen LLM reference sets. Three saved texts were delivered; the last case
+declined without a read. Its reference text contains details absent from the
+visible title, a plausible visibility limitation rather than proven causality.
+Reported use was 5,777 tokens, estimated USD 0.003559650 at frozen rates, not an
+invoice. The reference-aware closeout audit is not a new blind evaluation.
+The failed batch and preparation revision stay archived, without another run,
+production activation or importing its dedicated executor into main.
 
 The Sources panel separately supports local exact-ID/literal-keyword lookup
 and expansion of saved text through the existing artifact read. It does not
@@ -659,11 +671,20 @@ remain unchanged. Browse the [full experiment index](experiment-index.md).
 
 ## Highest-value next work
 
-First-party paid intent now survives document refresh as a credential-free
-session warning, with explicit risk acknowledgement before a new submission.
-Three real Chromium reload cases and fault-injected Node delivery/settlement
-contracts establish a bounded client guard, not recovered receipts or measured
-billing savings. See the [verification and limits](results-2026-09-08-paid-refresh-warning.md).
+First-party run/PDF/resume intent now has durable, authenticated receipt lookup,
+not just the historical tab-session warning. The journal binds accepted work
+and refuses unresolved redispatch; refresh/GET do not start another operation.
+See the [current receipt contract and limits](results-2026-09-10-durable-paid-receipts.md).
+The [earlier warning-only observation](results-2026-09-08-paid-refresh-warning.md)
+remains historical. Neither mechanism proves provider exactly-once billing,
+disk-loss recovery or measured user savings.
+
+The immediate maintenance work is independent auxiliary-call accounting:
+planning, translation and inline PDF extraction are not part of Crew-node
+totals. Keep unknown use explicit and do not reconstruct historical bills.
+Real deployment backup/restore preparation is conditional on continuing to
+retain user data; the existing synthetic restore rehearsal is not an observed
+Railway recovery. Neither item requires reopening a consumed paid experiment.
 
 1. The core metadata read fault path is now hardened through both HTTP endpoints,
    history and Chromium; see the [measured scope and limits](results-2026-09-05-runtime-metadata-integrity.md).
