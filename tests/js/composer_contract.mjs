@@ -9,6 +9,7 @@ import { createPaidReceipts } from "../../web/static/js/paid_receipts.js";
 globalThis.localStorage = { getItem: () => null, removeItem: () => {} };
 globalThis.sessionStorage = { getItem: () => null };
 const api = await import("../../web/static/js/api.js");
+const actualRunView = await import("../../web/static/js/run.js");
 const source = fs.readFileSync(new URL("../../web/static/js/app.js", import.meta.url), "utf8")
   .replace(/^import .*;\r?\n/gm, "");
 const translations = {
@@ -48,7 +49,7 @@ function fixture(receiptStore = new Map()) {
       setItem: (key, value) => receiptStore.set(key, value),
       removeItem: key => receiptStore.delete(key),
     })),
-    api, runView: { isTerminalState: (state) => ["completed", "failed", "cancelled", "timeout"].includes(state) },
+    api, runView: { ...actualRunView },
     sidebar: { refresh: () => Promise.resolve([]) }, result: {}, needsScopeWarning: () => false,
     i18n: { t: (key) => translations[key] || key, language: () => "English", apply: () => {} },
     document: { querySelector: get, querySelectorAll: (selector) => selector === '[data-resume-run]'
@@ -84,6 +85,53 @@ function paintResume(f) {
 
 const paper = { paper_id: "paper-one", title: "Fixture paper", commercialization_topic: "Suggested topic" };
 const scenarios = {
+  async auxiliary_attachment_and_receipt() {
+    const mode = process.argv[3];
+    const usage = {schema_version: 1, record_state: "recorded", coverage: "partial",
+      accounting_scope: "auxiliary_llm", end_to_end_cost_complete: false,
+      call_count: 1, provider_attempt_count: null, total_tokens: null,
+      observed_tokens: 12, observed_cost_usd: 0.000013, cost_complete: false, calls: [], pdf_reference: null};
+    const observation = mode === "missing" ? null : mode === "corrupt" ? {...usage, observed_tokens: true} : usage;
+    const verify = text => {
+      if (mode === "missing") assert.match(text, /not recorded/);
+      else if (mode === "corrupt") assert.match(text, /unreadable/);
+      else {
+        assert.match(text, /Observed tokens: 12/);
+        assert.ok(text.includes("$0.000013"));
+        assert.match(text, /Incomplete/);
+        assert.match(text, /not a full invoice/);
+      }
+      if (mode === "missing" || mode === "corrupt") assert.ok(!text.includes("$"));
+    };
+    const attachmentText = f => f.get("#attachment").children.map(el => el.textContent).join(" ");
+    const f = fixture(); f.topic("Unchanged caller topic");
+    const pending = f.upload();
+    f.respond(0, mode === "failed" ? {detail: "Safe extraction failure", auxiliary_usage: observation}
+      : {...paper, auxiliary_usage: observation}, mode === "failed" ? 422 : 200);
+    await pending;
+    verify(attachmentText(f));
+    assert.equal(f.get("#topic").value, "Unchanged caller topic");
+    assert.equal(f.requests.length, 1);
+    if (mode === "failed") assert.equal(f.run("attachedPaper"), null);
+
+    const lost = fixture(); lost.topic("Lost paper acknowledgement");
+    const upload = lost.upload();
+    lost.requests[0].reject(new Error("offline lost acknowledgement"));
+    await upload;
+    const lookup = lost.get("#paid-receipt-lookup").listeners.click();
+    assert.equal(lost.requests[1].url, "/api/receipts");
+    lost.respond(1, {operation: "paper", state: mode === "failed" ? "failed" : "accepted",
+      resource_id: paper.paper_id, auxiliary_usage: observation,
+      response: {...paper, auxiliary_usage: observation}});
+    await lookup;
+    const row = lost.get("#paid-receipt-results").children.at(-1);
+    verify(row.textContent);
+    if (mode !== "failed") {
+      await row.children[0].listeners.click();
+      verify(attachmentText(lost));
+    }
+    assert.equal(lost.requests.filter(r => r.options.method === "POST").length, 1);
+  },
   async durable_receipt_lookup() {
     const outcome = process.argv[3];
     const f = fixture(); f.topic("Lost paid acceptance");

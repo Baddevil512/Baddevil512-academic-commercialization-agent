@@ -128,6 +128,7 @@ class PaperExtraction(BaseModel):
     """
 
     paper_id: str
+    auxiliary_usage: dict | None = None
     title: str
     authors: str = ""
     doi: str | None = None
@@ -156,6 +157,7 @@ class PaidReceipt(BaseModel):
     status_code: int | None = None
     response: dict | None = None
     expires_at: float
+    auxiliary_usage: dict | None = None
 
 
 class StepEvent(BaseModel):
@@ -177,6 +179,7 @@ class RunProgress(BaseModel):
     """
 
     run_id: str
+    auxiliary_usage: dict | None = None
     state: RunState
     status_record_state: Literal["absent", "readable", "unreadable"] | None = None
     runtime_metadata_unreadable: list[str] = Field(
@@ -329,6 +332,7 @@ class RunStatus(BaseModel):
     """Current state of a run, read from its status.json."""
 
     run_id: str
+    auxiliary_usage: dict | None = None
     state: RunState
     # A valid immutable terminal can coexist with an unreadable live status.
     # Surface that loss even when the stronger outcome still says completed.

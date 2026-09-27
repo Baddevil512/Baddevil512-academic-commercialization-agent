@@ -9,6 +9,14 @@ from urllib.parse import urlsplit
 from playwright.sync_api import expect
 
 from e2e.browser_smoke import PROJECT_ROOT
+from academic_agent.auxiliary_usage import Call, Ledger, Tokens, project
+
+
+# Pure deterministic fixture construction, never an LLM/provider invocation.
+AUXILIARY_FIXTURE = project(Ledger(operation_complete=True, calls=[Call(
+    sequence=0, stage="pdf_extraction", unit="llm_invocation", model="qwen3.5-plus",
+    state="settled", outcome="returned", tokens=Tokens(prompt_tokens=10, completion_tokens=2),
+)]))
 
 
 def receipt_journey(browser, base, operation, fulfill):
@@ -21,6 +29,8 @@ def receipt_journey(browser, base, operation, fulfill):
     paper_id = "paper-cccccccccccccccccccccccccccccccc"
     accepted = ({"paper_id": paper_id, "title": "Recovered fixture paper", "commercialization_topic": "Recovered paper topic"}
                 if operation == "paper" else {"run_id": child, "topic": "Recovered fixture assessment"})
+    if operation == "paper":
+        accepted["auxiliary_usage"] = AUXILIARY_FIXTURE
 
     def intercept(route):
         request = route.request
@@ -39,6 +49,7 @@ def receipt_journey(browser, base, operation, fulfill):
             assert request.headers["x-access-code"] == "receipt-fixture-code"
             assert not url.query
             fulfill(route, {"operation": operation, "state": "accepted", "response": accepted,
+                "auxiliary_usage": AUXILIARY_FIXTURE if operation == "paper" else None,
                 "resource_id": paper_id if operation == "paper" else child,
                 "status_code": 200 if operation == "paper" else 202})
         elif url.path == "/api/access/check":
@@ -85,9 +96,15 @@ def receipt_journey(browser, base, operation, fulfill):
         page.locator("#paid-receipt-lookup").click()
         open_result = page.locator("#paid-receipt-results button")
         expect(open_result).to_have_count(1)
+        if operation == "paper":
+            expect(page.locator("#paid-receipt-results")).to_contain_text("Observed tokens: 12")
+            expect(page.locator("#paid-receipt-results")).to_contain_text("$0.000013")
         open_result.click()
         if operation == "paper":
             expect(page.locator("#attachment")).to_contain_text("Recovered fixture paper")
+            expect(page.locator("#attachment")).to_contain_text("Observed tokens: 12")
+            expect(page.locator("#attachment")).to_contain_text("Incomplete / lower bound")
+            expect(page.locator("#attachment")).to_contain_text("not a full invoice")
         else:
             expect(page).to_have_url(f"{base}/run/{child}")
         expect(page.locator("#paid-receipt-lookup")).to_be_hidden()

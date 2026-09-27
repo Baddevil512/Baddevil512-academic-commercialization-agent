@@ -622,6 +622,13 @@ new batches bind source/model/config/fixture identity and refuse occupied
 invalid units; summaries never overwrite the archived calibration CSVs. See
 the [cost/batch regression and limits](docs/results-2026-09-10-cost-scope-and-benchmark-identity.md).
 
+The [independent auxiliary ledger](docs/results-2026-09-27-auxiliary-llm-accounting.md)
+observes new helper calls without rewriting Crew totals or terminal v1. Preserve
+actual-thread PDF settlement, unknown SDK retries, fault snapshot reconciliation,
+and historical PDF references that never become new child costs. No prompt,
+credential or arbitrary model identity belongs in these records. Receipt reads
+cannot settle, redispatch or manufacture known-zero spend.
+
 Production scoring citation admission now wraps the hash-locked evidence
 factory in `scoring_contract.py`; include it in local recovery identity.
 Do not rewrite old experiment hashes to evolve production checks. PDF locator

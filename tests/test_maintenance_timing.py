@@ -14,7 +14,7 @@ from api import main, runs
 from api.models import ReadinessStatus
 
 
-STAGES = ("timeouts", "papers", "retention", "receipts")
+STAGES = ("timeouts", "papers", "retention", "receipts", "auxiliary_usage")
 TIMING_FIELDS = {
     "current_started_at", "current_elapsed_seconds", "last_started_at",
     "last_finished_at", "last_duration_seconds", "last_finished_age_seconds",

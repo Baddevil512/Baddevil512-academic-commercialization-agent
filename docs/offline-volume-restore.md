@@ -98,6 +98,33 @@ paid admission or justify retrying an uncertain request.
 
 ## Manual actual-restore prerequisites: separate authority required
 
+### Deployment-specific readiness before any copy or restore
+
+Record the service/environment, active revision, replica count and actual volume
+mount from a read-only deployment query. This application expects one process
+and a durable `/app/outputs` mount, not just an ephemeral directory in the image.
+A confirmed mount is **not** evidence that scheduled backups exist.
+
+Separately inspect the selected volume instance's backup list and schedules:
+latest completed snapshot time, expiry, schedule/retention, and who can perform
+a recovery. The [official Railway volume API](https://docs.railway.com/integrations/api/manage-volumes)
+documents read-only backup and schedule queries. A mount's volume ID is not
+by itself proof of the API's required volume-instance identity. If the client
+cannot query these facts, record them as **unavailable**, not absent or healthy;
+do not create a backup or change a schedule just to test access.
+
+Define acceptable data-loss and recovery-time targets before an actual exercise;
+neither a displayed schedule nor this synthetic test measures achieved RPO/RTO.
+Record which credentials and private artifacts an isolated copy would contain,
+its retention and disposal policy, and separate permission for that transfer.
+Restore inspection must not become automatic paid resumption.
+
+The new auxiliary LLM sidecars and private PDF observations are also under the
+output volume and must be included in a whole-volume inventory. The historical
+fixture list above does not establish their restored behavior. Preserve missing
+or failed accounting as uncertainty, and never combine reference-only PDF
+observations with a recovery child's newly incurred helper use.
+
 An actual restore requires a separately authorized, deployment-specific plan:
 
 1. Stop **all** new paid routes: assessments, resume, paper extraction and locator

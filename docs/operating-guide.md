@@ -525,7 +525,7 @@ unpriced, rather than showing an unknown model as free. Operators may set
 this is an estimate, not an invoice. See
 [runtime terminal integrity](runtime-terminal-integrity.md).
 
-New usage payloads explicitly identify `accounting_scope=crew_nodes`, excluded
+Crew usage payloads explicitly identify `accounting_scope=crew_nodes`, excluded
 stages and `end_to_end_cost_complete=false`. Planning, translation, inline PDF
 extraction and source retrieval are not collected here; exclusion is not proof
 that a stage executed or was free. The browser displays this scope even when
@@ -535,6 +535,16 @@ but emit `invalid_price_override` without echoing configuration values. Overflow
 or an entirely unpriced collection is unknown, never zero. Temporal completion
 remains independent of scope and price validity. See the
 [cost and benchmark contract](results-2026-09-10-cost-scope-and-benchmark-identity.md).
+
+New runs and inline PDF operations also expose a separate `auxiliary_usage`
+observation for planning/translation and extraction. It is not added to Crew
+totals. Historical absence, failed storage and unknown usage stay explicit;
+PDF SDK observations cannot count hidden retries or establish complete spend.
+An attached PDF's prior extraction is `reference_only`, not a fresh charge in
+each assessment or recovery child. Repeated receipt lookup/replay is read-only.
+Estimates use the versioned model price table, not operator price overrides or
+an invoice; full end-to-end completeness remains false. See the
+[auxiliary accounting contract and limits](results-2026-09-27-auxiliary-llm-accounting.md).
 
 The status/progress read projection isolates malformed reliability summaries
 through `audit_metadata_unreadable`: the affected panel row says it cannot be

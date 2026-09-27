@@ -6,11 +6,12 @@
  */
 
 export class ApiError extends Error {
-  constructor(status, detail, code = null) {
+  constructor(status, detail, code = null, auxiliary_usage = null) {
     super(detail || `Request failed (${status})`);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
+    this.auxiliary_usage = auxiliary_usage;
   }
 }
 
@@ -180,15 +181,17 @@ async function request(path, options = {}) {
     if (response.status === 401 && stored && headers["X-Access-Code"] === stored
       && selection === accessSelection) setAccessCode(null);
     let detail = "";
+    let auxiliary = null;
     try {
       const body = await response.json();
       detail = body.detail ?? "";
+      auxiliary = body.auxiliary_usage ?? null;
     } catch {
       detail = await response.text().catch(() => "");
     }
     // Additive response metadata keeps the legacy string detail contract.
     // Status 429 alone cannot distinguish daily quota from transient capacity.
-    throw new ApiError(response.status, detail, response.headers.get("X-Error-Code"));
+    throw new ApiError(response.status, detail, response.headers.get("X-Error-Code"), auxiliary);
   }
 
   if (response.status === 204) return null;

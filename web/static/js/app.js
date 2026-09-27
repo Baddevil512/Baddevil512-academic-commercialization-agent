@@ -185,7 +185,7 @@ function startClock(fromSeconds) {
 }
 
 function paintHeader({
-  topic, state, elapsed_seconds, source_counts, usage, usage_accounting,
+  topic, state, elapsed_seconds, source_counts, usage, usage_accounting, auxiliary_usage,
   terminal, status_record_state, checkpointing, recovery, runtime_metadata_unreadable, steps_read_state,
 }) {
   if (topic) $("#run-title").textContent = topic;
@@ -209,8 +209,9 @@ function paintHeader({
   // it spent, and that is the bill nobody can otherwise estimate.
   const spend = runView.usageSummary(usage, usage_accounting);
   const spendEl = $("#run-usage");
-  spendEl.textContent = spend ? `· ${spend}` : "";
-  spendEl.title = spend ? runView.usageTitle(usage, usage_accounting) : "";
+  const auxiliary = runView.auxiliarySummary(auxiliary_usage);
+  spendEl.textContent = [spend, auxiliary].filter(Boolean).join(" · ");
+  spendEl.title = [runView.usageTitle(usage, usage_accounting), auxiliary].filter(Boolean).join("\n");
 
   // State alone cannot distinguish a worker failure from a watchdog stop, and
   // a missing/unreadable terminal record must not look like an ordinary clean
@@ -649,6 +650,10 @@ function paintAttachment(paper) {
   });
 
   attachment.append(title, remove);
+  const usage = document.createElement("span");
+  usage.textContent = runView.auxiliarySummary(paper.auxiliary_usage);
+  usage.title = usage.textContent;
+  attachment.append(usage);
   attachBtn.dataset.active = "true";
 
   // Suggest a topic only for an empty composer. The user's existing topic
@@ -698,6 +703,12 @@ async function uploadPaper(file) {
   } catch (err) {
     if (generation !== uploadGeneration) return;
     clearAttachment();
+    if (err.auxiliary_usage != null) {
+      attachment.hidden = false;
+      const observation = document.createElement("span");
+      observation.textContent = runView.auxiliarySummary(err.auxiliary_usage);
+      attachment.append(observation);
+    }
     toast(err.status === 413
       ? t("msg_too_large")
       : operationErrorMessage(err), "error");
@@ -1096,6 +1107,7 @@ $("#paid-receipt-lookup").addEventListener("click", async () => {
         if (generation !== receiptViewGeneration) break;
         if (receipt.state !== "accepted") {
           row.textContent = t(receipt.state === "failed" ? "receipt_failed" : "receipt_unresolved");
+          if (receipt.operation === "paper") row.textContent += " · " + runView.auxiliarySummary(receipt.auxiliary_usage);
           continue;
         }
         const body = receipt.response;
@@ -1104,6 +1116,7 @@ $("#paid-receipt-lookup").addEventListener("click", async () => {
         if (receipt.operation !== entry.operation || receipt.resource_id !== body[paper ? "paper_id" : "run_id"])
           throw new api.ApiError(503, "Receipt identity mismatch", "receipt_unavailable");
         row.textContent = paper ? t("receipt_paper_found") : t("receipt_run_found");
+        if (paper) row.textContent += " · " + runView.auxiliarySummary(receipt.auxiliary_usage);
         const open = document.createElement("button");
         open.type = "button";
         open.className = "btn btn--secondary";
