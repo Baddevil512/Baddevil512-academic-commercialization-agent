@@ -1,0 +1,260 @@
+{
+  "schema_version": 1,
+  "cohort_id": "ordered_window_conjunction_development_v1",
+  "origin": "fictional_author_generated_then_label_blind_llm_reviewed",
+  "reference_scope": "candidate_relevance_not_scientific_truth_or_unseen_accuracy",
+  "cases": [
+    {
+      "case_id": "C01",
+      "information_need": "Which record should be inspected for a membrane process that recovers lithium from geothermal brine?",
+      "query": "lithium recovery geothermal brine membrane",
+      "sources": [
+        {
+          "source_id": "A1",
+          "title": "Selective Membranes for Geothermal Brine Lithium Recovery",
+          "summary": "Pilot cartridges separate lithium ions from high-salinity geothermal brine before reinjection."
+        },
+        {
+          "source_id": "A2",
+          "title": "Geothermal Heat Exchanger Corrosion Survey",
+          "summary": "A materials survey of scaling and corrosion in brine circulation pipes."
+        }
+      ],
+      "acceptable_ids": [
+        "A1"
+      ],
+      "uncertain_ids": []
+    },
+    {
+      "case_id": "C02",
+      "information_need": "Which record should be inspected for an autonomous warehouse robot that detects loose pallet wrapping?",
+      "query": "warehouse robot pallet wrap detection",
+      "sources": [
+        {
+          "source_id": "A1",
+          "title": "Vision-Guided Robots Detecting Loose Pallet Wrap",
+          "summary": "Mobile warehouse robots flag torn or slack stretch film around outgoing pallet loads."
+        },
+        {
+          "source_id": "A2",
+          "title": "Pallet Route Optimization in Distribution Centers",
+          "summary": "Software assigns forklift routes using delivery deadlines and aisle congestion."
+        }
+      ],
+      "acceptable_ids": [
+        "A1"
+      ],
+      "uncertain_ids": []
+    },
+    {
+      "case_id": "C03",
+      "information_need": "Which record should be inspected for reducing methane loss during seaweed anaerobic digestion?",
+      "query": "seaweed anaerobic digestion methane loss",
+      "sources": [
+        {
+          "source_id": "A1",
+          "title": "Suppressing Methane Leakage in Seaweed Digesters",
+          "summary": "Seal monitoring and gas recirculation were tested during anaerobic digestion of kelp residues."
+        },
+        {
+          "source_id": "A2",
+          "title": "Seaweed Drying for Animal Feed",
+          "summary": "A low-temperature drying workflow preserves pigment in harvested macroalgae."
+        }
+      ],
+      "acceptable_ids": [
+        "A1"
+      ],
+      "uncertain_ids": []
+    },
+    {
+      "case_id": "C04",
+      "information_need": "Which record should be inspected for cooling photovoltaic modules using evaporative roof tiles?",
+      "query": "photovoltaic cooling evaporative roof tiles",
+      "sources": [
+        {
+          "source_id": "A1",
+          "title": "Evaporative Roof Tiles for Photovoltaic Cooling",
+          "summary": "Porous ceramic tiles wick stored rainwater to lower module temperature during sunny periods."
+        },
+        {
+          "source_id": "A2",
+          "title": "Reflective Roof Tile Color Durability",
+          "summary": "Exterior pigments were exposed to ultraviolet light and salt spray."
+        }
+      ],
+      "acceptable_ids": [
+        "A1"
+      ],
+      "uncertain_ids": []
+    },
+    {
+      "case_id": "C05",
+      "information_need": "Which record should be inspected for detecting mastitis from dairy milking vacuum signals?",
+      "query": "dairy mastitis milking vacuum signals",
+      "sources": [
+        {
+          "source_id": "A1",
+          "title": "Milking Vacuum Signatures for Early Mastitis Alerts",
+          "summary": "Pressure-wave features from dairy parlour lines are used to identify animals needing inspection."
+        },
+        {
+          "source_id": "A2",
+          "title": "Vacuum Pump Energy Retrofit for Dairies",
+          "summary": "Variable-speed drives reduce electricity use in central milking vacuum pumps."
+        }
+      ],
+      "acceptable_ids": [
+        "A1"
+      ],
+      "uncertain_ids": []
+    },
+    {
+      "case_id": "C06",
+      "information_need": "Which record should be inspected for repairing leaking hydrogen pipelines with a cold-applied composite wrap?",
+      "query": "hydrogen pipeline leak cold composite wrap",
+      "sources": [
+        {
+          "source_id": "A1",
+          "title": "Composite Wrap Repair for Pressurized Pipelines",
+          "summary": "A cold-applied resin sleeve sealed small hydrogen leaks without hot work."
+        },
+        {
+          "source_id": "A2",
+          "title": "Hydrogen Pipeline Odorant Assessment",
+          "summary": "Operators evaluated odorant perception during routine network inspections."
+        }
+      ],
+      "acceptable_ids": [
+        "A1"
+      ],
+      "uncertain_ids": []
+    },
+    {
+      "case_id": "C07",
+      "information_need": "Which record should be inspected for ceramic filter fouling in municipal drinking-water treatment, rather than ceramic use in electronics?",
+      "query": "ceramic filter fouling water treatment",
+      "sources": [
+        {
+          "source_id": "A1",
+          "title": "Ceramic Filter Fouling in Municipal Water Treatment",
+          "summary": "Backwash intervals were compared for turbidity removal at a drinking-water plant."
+        },
+        {
+          "source_id": "A2",
+          "title": "Ceramic Filter Fouling in Semiconductor Etch Tools",
+          "summary": "Particle capture media protected ultrapure process water used in wafer fabrication."
+        }
+      ],
+      "acceptable_ids": [
+        "A1"
+      ],
+      "uncertain_ids": []
+    },
+    {
+      "case_id": "C08",
+      "information_need": "Which record should be inspected for a sensor that measures bridge cable tension using guided waves?",
+      "query": "bridge cable tension guided waves sensor",
+      "sources": [
+        {
+          "source_id": "A1",
+          "title": "Bridge Monitoring Platform",
+          "summary": "A sensor node measures cable tension after traffic events; guided waves are later used to localize strand damage."
+        },
+        {
+          "source_id": "A2",
+          "title": "Guided-Wave Inspection of Offshore Risers",
+          "summary": "Wave reflections identify corrosion in subsea oil risers."
+        }
+      ],
+      "acceptable_ids": [],
+      "uncertain_ids": [
+        "A1"
+      ]
+    },
+    {
+      "case_id": "C09",
+      "information_need": "Which record should be inspected for preventing mould in stored grain silos?",
+      "query": "grain silo mould prevention",
+      "sources": [
+        {
+          "source_id": "A1",
+          "title": "Humidity Control for Grain Silo Mould Prevention",
+          "summary": "Aeration thresholds reduce fungal growth during long-term wheat storage."
+        },
+        {
+          "source_id": "A2",
+          "title": "Siloed Data Governance for Grain Traders",
+          "summary": "A software policy prevents duplicate records across commodity desks."
+        }
+      ],
+      "acceptable_ids": [
+        "A1"
+      ],
+      "uncertain_ids": []
+    },
+    {
+      "case_id": "C10",
+      "information_need": "Which record should be inspected for a fire-retardant coating on electric-vehicle battery enclosures?",
+      "query": "fire retardant electric vehicle battery enclosure coating",
+      "sources": [
+        {
+          "source_id": "A1",
+          "title": "Fire-Retardant Coatings for EV Battery Enclosures",
+          "summary": "An intumescent layer delays external flame exposure on aluminum traction-battery housings."
+        },
+        {
+          "source_id": "A2",
+          "title": "Vehicle Fire Retardant Battery Recycling Labels",
+          "summary": "Labels communicate handling instructions for dismantling electric vehicle battery packs."
+        }
+      ],
+      "acceptable_ids": [
+        "A1"
+      ],
+      "uncertain_ids": []
+    },
+    {
+      "case_id": "C11",
+      "information_need": "Which record should be inspected for compostable coffee-cup lids that do not use polystyrene?",
+      "query": "compostable coffee cup lids polystyrene",
+      "sources": [
+        {
+          "source_id": "A1",
+          "title": "Polystyrene-Free Compostable Coffee Cup Lids",
+          "summary": "Moulded fibre lids replace polystyrene while retaining heat resistance for takeaway drinks."
+        },
+        {
+          "source_id": "A2",
+          "title": "Polystyrene Coffee Cup Lids with Compostable Coating",
+          "summary": "A thin compostable surface layer is applied over a conventional polystyrene lid."
+        }
+      ],
+      "acceptable_ids": [
+        "A1"
+      ],
+      "uncertain_ids": []
+    },
+    {
+      "case_id": "C12",
+      "information_need": "Which record should be inspected for predicting harvest timing of greenhouse strawberries from flower images?",
+      "query": "greenhouse strawberry flower image harvest prediction",
+      "sources": [
+        {
+          "source_id": "A1",
+          "title": "Flower Images Predicting Greenhouse Strawberry Harvest",
+          "summary": "Camera observations of bloom stages estimate picking windows for strawberry growers."
+        },
+        {
+          "source_id": "A2",
+          "title": "Strawberry Flower Image Dataset for Pollinator Education",
+          "summary": "Annotated photographs support classroom lessons about bee visitation and plant anatomy."
+        }
+      ],
+      "acceptable_ids": [
+        "A1"
+      ],
+      "uncertain_ids": []
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "method": "ordered_window_conjunction_v1",
+  "status": "closed_failed_development_comparison",
+  "base_revision": "45bfc49ce1a255996e21d14fd2a07b4f6e8208d2",
+  "files_sha256": {
+    "prototype.py": "2510151e2f29a84d5723ffb796106e32a0ca0a66bed726fa3697e85e4156a8b6",
+    "checks.py": "acf0b6517b2b0f82e0c2ffce8bcbc911ee05f35a791bcfae309bf142a7e21a4e",
+    "fixture.json": "3e92ab315981a9cdd4ef2b172428cca2b540e2c63cb7691f945f0210c994a747",
+    "result.json": "7c1aeb499d0cb58ab41ef9bbf006b42fc53cf09e082d340354868242674acc61"
+  },
+  "dependency_git_blobs": {
+    "src/academic_agent/saved_source_candidate_search.py": "48a1826ea8db6506be5c7d33577d337624d44a14",
+    "src/academic_agent/report_evidence_snapshot.py": "cf0a0f0fe28e8cda8474d6e426043e862693080c"
+  },
+  "operator_observations": {
+    "exact_preprototype_baseline_cases": 12,
+    "recorded_cases": 12,
+    "positive_reference_cases": 11,
+    "uncertain_reference_cases": 1,
+    "baseline_coverage": 1,
+    "combined_coverage": 1,
+    "new_candidates": 0,
+    "new_covered_cases": 0,
+    "eligible_definite_distractors": 12,
+    "synthetic_controls_passed": 101,
+    "in_memory_mutations_killed": ["field_join", "casefold", "hidden_mask"],
+    "independent_review": "no_premeasurement_blockers_reported",
+    "review_role_requested": "route_reviewer / gpt-6-astra / high",
+    "effective_backend_metadata": "unavailable",
+    "provider_requests": 0,
+    "external_searches": 0,
+    "source_reads": 0,
+    "production_changes": false
+  },
+  "gate_assessment_with_external_controls": {
+    "1_baseline_boundaries_accounting": "passed",
+    "2_new_positive_questions": "failed",
+    "3_zero_definite_added_nonreferences": "passed",
+    "4_eligible_definite_distractor": "passed",
+    "combined": "failed"
+  },
+  "limitations": [
+    "The raw result leaves gate 1 unproven; external engineering checks are recorded separately here.",
+    "The rejected initial self-test computed the cohort before corrected measurement; no pristine-unseen claim.",
+    "References are LLM judgments, not human expert gold or independently verified scientific truth.",
+    "Zero returned additions does not establish useful precision, general accuracy or user benefit."
+  ]
+}

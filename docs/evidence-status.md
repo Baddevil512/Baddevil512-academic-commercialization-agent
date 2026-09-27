@@ -73,6 +73,16 @@ frozen rates, not a bill. These synthetic, LLM-reviewed development references
 are not unseen accuracy or human gold. No retry, repair or production activation
 followed; the pre-live diagnostic and actual native misses remain distinct.
 
+A [zero-provider ordered-window comparison](results-2026-09-27-ordered-window-conjunction-offline.md)
+then tested a fixed local-query successor on twelve fictional development tasks
+(eleven positive, one uncertain). Old and combined positive coverage were both
+1/11, with zero added candidates; the gain gate failed. Complete baseline
+delivery and 101 engineering controls passed, including three actual defect
+reinjections. The rejected initial self-test had already computed the cohort,
+so this is explicitly not pristine unseen evidence. The failed candidate is
+archived outside production and default test collection; no paid allowance or
+activation follows.
+
 Planning/translation now shares complete provider configuration with the main
 factory; fixed BYOK destinations and narrow credential/content-safe diagnostics
 are offline-tested. Historical node usage totals still exclude auxiliary calls.
