@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from playwright.sync_api import Page, Route, expect, sync_playwright
 
 from e2e.browser_smoke import PROJECT_ROOT, _capture_failure, _serve
-from e2e.receipt_journey import receipt_journey
+from e2e.receipt_journey import AUXILIARY_FIXTURE, receipt_journey
 
 
 def _wait_requests(page: Page, requests: list[Route], count: int) -> None:
@@ -421,10 +421,14 @@ def main() -> None:
             page.wait_for_timeout(30)
             assert len(requests) == 1
             _json(requests[0], {"paper_id": "selected-paper", "title": "Selected paper",
+                                "auxiliary_usage": AUXILIARY_FIXTURE,
                                 "commercialization_topic": "Do not replace the existing topic"})
             expect(run).to_be_enabled()
             expect(topic).to_have_value("Existing paper assessment topic")
             expect(page.locator("#attachment")).to_contain_text("Selected paper")
+            expect(page.locator("#attachment")).to_contain_text("Observed tokens: 12")
+            expect(page.locator("#attachment")).to_contain_text("$0.000013")
+            expect(page.locator("#attachment")).to_contain_text("not a full invoice")
             run.click()
             _wait_requests(page, requests, 2)
             assert requests[1].request.post_data_json["paper_id"] == "selected-paper"
@@ -466,6 +470,7 @@ def main() -> None:
             _json(requests[3], {"paper_id": "autofilled", "title": "Auto-filled paper",
                                 "commercialization_topic": "Auto-filled topic"})
             expect(topic).to_have_value("Auto-filled topic")
+            expect(page.locator("#attachment")).to_contain_text("辅助 LLM 用量未记录（并非零费用）")
             expect(run).to_be_enabled()
             page.locator("#attach-btn").click()
             page.locator("#pdf-input").set_input_files(pdf)

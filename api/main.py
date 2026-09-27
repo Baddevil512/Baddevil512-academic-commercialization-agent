@@ -44,6 +44,7 @@ from academic_agent.pdf_extractor import (  # noqa: E402
     extract_paper_contribution,
 )
 from api import access, papers, receipts, runs  # noqa: E402  — must follow load_dotenv
+from api import auxiliary_usage
 from api.cleanup import CleanupAudit  # noqa: E402
 from api.maintenance import MaintenanceDeferred  # noqa: E402
 from api.upload_boundary import PaperUploadBoundary, release_upload_slot  # noqa: E402
@@ -246,6 +247,7 @@ async def _reaper() -> None:
             ("papers", papers.prune_old),
             ("retention", runs.prune_expired_runs),
             ("receipts", _prune_receipts),
+            ("auxiliary_usage", auxiliary_usage.prune),
         ) + _source_locator_stages():
             await _maintenance_stage(name, operation, collect_cleanup=name in {"papers", "retention"})
 
@@ -254,7 +256,7 @@ async def _reaper() -> None:
 async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
     global _maintenance_task, _maintenance_checks, _maintenance_timings
     with _maintenance_lock:
-        _maintenance_checks = dict.fromkeys(("timeouts", "papers", "retention", "receipts"), "not_checked")
+        _maintenance_checks = dict.fromkeys(("timeouts", "papers", "retention", "receipts", "auxiliary_usage"), "not_checked")
         _maintenance_checks.update(dict.fromkeys((name for name, _ in _source_locator_stages()), "not_checked"))
         _maintenance_timings = {}
     task = asyncio.create_task(_reaper())
@@ -743,6 +745,20 @@ async def receipt_error(_request: Request, exc: receipts.ReceiptError):
                         headers={"X-Error-Code": exc.code, "Cache-Control": "no-store"})
 
 
+class _PaperHTTPError(HTTPException):
+    """Existing HTTP failure plus an independent, already-projected observation."""
+
+    def __init__(self, original: HTTPException, summary: dict):
+        super().__init__(original.status_code, original.detail, headers=original.headers)
+        self.auxiliary_usage = summary
+
+
+@app.exception_handler(_PaperHTTPError)
+async def paper_http_error(_request: Request, exc: _PaperHTTPError):
+    return JSONResponse({"detail": exc.detail, "auxiliary_usage": exc.auxiliary_usage},
+                        status_code=exc.status_code, headers={"Cache-Control": "no-store", **(exc.headers or {})})
+
+
 def _receipt_http_contract(*, required=False):
     return {"parameters": [{"name": "Idempotency-Key", "in": "header", "required": required,
         "schema": {"type": "string", "pattern": r"^v1\.[0-9]{10}\.[0-9a-f]{64}$"},
@@ -771,11 +787,18 @@ def _receipt_body(record: dict) -> dict:
                 raise ValueError("Invalid failed receipt")
             if body.get("error_code") not in {None, "concurrency_limit", "daily_quota_exceeded", "upload_capacity", "rate_limited"}:
                 raise ValueError("Invalid failure category")
-            return {"detail": body["detail"], "error_code": body.get("error_code")}
+            body = {"detail": body["detail"], "error_code": body.get("error_code")}
+            if record["kind"] == "paper" and record.get("resource_id"):
+                # A parsing failure can follow a billed extraction. Project the
+                # same authorized observation as GET without rewriting receipts
+                # or depending on the discarded paper's extraction metadata.
+                body["auxiliary_usage"] = auxiliary_usage.paper_summary(record["resource_id"])
+            return body
         if record["kind"] == "paper":
             if record["status"] != 200 or body["paper_id"] != record["resource_id"]:
                 raise ValueError("Invalid paper receipt")
-            body = {"paper_id": body["paper_id"], **papers.load_extraction(body["paper_id"])}
+            body = {"paper_id": body["paper_id"], **papers.load_extraction(body["paper_id"]),
+                    "auxiliary_usage": auxiliary_usage.paper_summary(body["paper_id"])}
             return PaperExtraction.model_validate(body).model_dump(mode="json")
         if record["status"] != 202 or body["run_id"] != record["resource_id"]:
             raise ValueError("Invalid run receipt")
@@ -838,6 +861,8 @@ def get_paid_receipt(http_request: Request, response: Response) -> PaidReceipt:
                              access.owner_id(matched) if matched else None,
                              admin=matched is not None and access.is_admin(matched))
     public = receipts.public_record(record)
+    if record["kind"] == "paper" and record.get("resource_id"):
+        public["auxiliary_usage"] = auxiliary_usage.paper_summary(record["resource_id"])
     if record["state"] != "pending":
         public["response"] = _receipt_body(record)
     response.headers["Cache-Control"] = "no-store"
@@ -886,11 +911,13 @@ def _submit_run_without_receipt(request: RunRequest, http_request: Request) -> R
     owner = access.owner_id(matched) if matched and not request.byok else None
 
     paper_json_path: str | None = None
+    auxiliary_pdf_reference = None
     if request.paper_id:
         try:
             paper_json_path = str(
                 papers.extraction_path_for_run(request.paper_id, owner=owner)
             )
+            auxiliary_pdf_reference = auxiliary_usage.paper_reference(request.paper_id)
         except papers.PaperNotFound as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -905,6 +932,7 @@ def _submit_run_without_receipt(request: RunRequest, http_request: Request) -> R
             language=request.language,
             weight_profile=request.weight_profile,
             paper_json_path=paper_json_path,
+            **({"auxiliary_pdf_reference": auxiliary_pdf_reference} if auxiliary_pdf_reference is not None else {}),
             decision_context=request.decision_context,
             byok=byok,
             owner=owner,
@@ -1248,6 +1276,7 @@ def get_progress(run_id: str, since: int = Query(default=0, ge=0)) -> RunProgres
         # test_api_contract.py now fails when they diverge.
         usage=state.get("usage"),
         usage_accounting=state.get("usage_accounting"),
+        auxiliary_usage=state.get("auxiliary_usage"),
         runtime_budget=state.get("runtime_budget"),
         terminal=state.get("terminal"),
         claim_grounding=state.get("claim_grounding"),
@@ -1333,7 +1362,7 @@ async def _process_uploaded_paper(paper_id: str, pdf_path: str, **credentials) -
     abandoned = threading.Event()
     ticket = receipts.current()
 
-    def execute() -> PaperContribution:
+    def execute_owned() -> PaperContribution:
         stored = False
         try:
             # Shielding assigns cleanup ownership, not permission to spend
@@ -1379,6 +1408,13 @@ async def _process_uploaded_paper(paper_id: str, pdf_path: str, **credentials) -
         finally:
             if not stored or (abandoned.is_set() and ticket is None):
                 papers.discard(paper_id)
+
+    def execute() -> PaperContribution:
+        # Bind inside the actual thread, not the cancellable HTTP waiter.
+        with auxiliary_usage.paper_operation(paper_id) as collector:
+            contribution = execute_owned()
+        contribution._auxiliary_usage = collector.summary()
+        return contribution
 
     task = asyncio.create_task(asyncio.to_thread(execute))
     _paper_jobs.add(task)
@@ -1498,6 +1534,19 @@ async def _upload_paper_bytes(buffer: list[bytes], http_request: Request, *, own
     del data
     release_upload_slot(http_request.scope)
     try:
+        return await _uploaded_paper_result(paper_id, pdf_path, owner=owner, byok=byok,
+                                            llm_provider=llm_provider, llm_api_key=llm_api_key)
+    except HTTPException as exc:
+        summary = await asyncio.to_thread(auxiliary_usage.paper_summary, paper_id)
+        raise _PaperHTTPError(exc, summary) from exc
+    except receipts.ReceiptError as exc:
+        summary = await asyncio.to_thread(auxiliary_usage.paper_summary, paper_id)
+        original = HTTPException(exc.status, str(exc), headers={"X-Error-Code": exc.code})
+        raise _PaperHTTPError(original, summary) from exc
+
+
+async def _uploaded_paper_result(paper_id, pdf_path, *, owner, byok, llm_provider, llm_api_key):
+    try:
         contribution = await _process_uploaded_paper(
             paper_id, str(pdf_path),
             owner=owner,
@@ -1551,7 +1600,12 @@ async def _upload_paper_bytes(buffer: list[bytes], http_request: Request, *, own
             ),
         ) from exc
 
-    return PaperExtraction(paper_id=paper_id, **contribution.model_dump())
+    summary = getattr(contribution, "_auxiliary_usage", None)
+    if not isinstance(summary, dict):
+        # No eager getattr default: a private-store/pruner lock and filesystem
+        # access must never execute on the ASGI event loop, even on fallback.
+        summary = await asyncio.to_thread(auxiliary_usage.paper_summary, paper_id)
+    return PaperExtraction(paper_id=paper_id, **contribution.model_dump(), auxiliary_usage=summary)
 
 
 @app.get(

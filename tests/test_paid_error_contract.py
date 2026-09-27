@@ -22,7 +22,12 @@ def test_admission_reason_reaches_all_paid_endpoints(monkeypatch, tmp_path, oper
     monkeypatch.setattr(runs, "start_run", fail)
     monkeypatch.setattr(runs, "resume_run", fail)
     monkeypatch.setattr(main, "_extract_paper_with_paid_reservation", fail)
-    monkeypatch.setattr(papers, "save_upload", lambda *_args, **_kw: ("fixture-paper", tmp_path / "stub.pdf"))
+    # save_upload has always returned a generated capability. The old invalid
+    # placeholder never reached the new observation store's strict path check;
+    # use the real id grammar without weakening the 429/call/cleanup assertions.
+    paper_id = "paper-" + "0" * 32
+    monkeypatch.setattr(papers, "PAPERS_ROOT", tmp_path / "_papers")
+    monkeypatch.setattr(papers, "save_upload", lambda *_args, **_kw: (paper_id, tmp_path / "stub.pdf"))
     discarded = MagicMock()
     monkeypatch.setattr(papers, "discard", discarded)
     client = TestClient(main.app)
@@ -39,7 +44,7 @@ def test_admission_reason_reaches_all_paid_endpoints(monkeypatch, tmp_path, oper
     assert hint in response.json()["detail"]
     fail.assert_called_once()
     if operation == "paper":
-        discarded.assert_called_once_with("fixture-paper")
+        discarded.assert_called_once_with(paper_id)
 
 
 def test_request_rate_limit_is_not_a_paid_quota_error(monkeypatch):

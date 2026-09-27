@@ -228,16 +228,37 @@ def _call_llm_json(
         # the same instruction tier as the extraction contract.
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": prompt})
-    raw = llm.call(messages)
-    content = (raw or "{}").strip()
-    content = re.sub(r"^```(?:json)?\s*", "", content)
-    content = re.sub(r"\s*```$", "", content)
+    from academic_agent.auxiliary_usage import current, parse_usage
+
+    collector = current()
+    model = getattr(llm, "model", None) if collector is not None else None
+    sequence = collector.begin("pdf_extraction", "llm_invocation", model) if collector is not None else None
+    outcome = "call_failed"
     try:
-        return json.loads(content)
-    except json.JSONDecodeError:
-        # Neither the excerpt nor a chained provider response belongs in logs.
-        # The input may be unpublished; parse position is not a useful receipt.
-        raise ValueError("LLM returned non-JSON content") from None
+        raw = llm.call(messages)
+        outcome = "response_invalid"
+        content = (raw or "{}").strip()
+        content = re.sub(r"^```(?:json)?\s*", "", content)
+        content = re.sub(r"\s*```$", "", content)
+        try:
+            result = json.loads(content)
+        except json.JSONDecodeError:
+            # Neither the excerpt nor a chained response belongs in logs.
+            raise ValueError("LLM returned non-JSON content") from None
+        outcome = "returned"
+        return result
+    finally:
+        if collector is not None:
+            usage = None
+            try:
+                # Read this extraction's own object, including after parser
+                # failure. No global listener can mix concurrent PDF accounts.
+                summary = llm.get_token_usage_summary()
+                summary = summary.model_dump() if hasattr(summary, "model_dump") else summary
+                usage = parse_usage(summary, model, sdk=True)
+            except Exception:  # noqa: BLE001 - optional SDK accounting cannot discard a paid result
+                pass
+            collector.settle(sequence, usage, outcome)
 
 
 def _detect_paper_language(text: str) -> str:

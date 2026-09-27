@@ -19,7 +19,7 @@ from api import main, runs
 from api.models import ReadinessStatus
 
 
-STAGES = ("timeouts", "papers", "retention", "receipts")
+STAGES = ("timeouts", "papers", "retention", "receipts", "auxiliary_usage")
 RID = "20200101T000000Z-abcdef0123"
 _REAP_TIMEOUTS = runs.reap_timeouts
 _SHUTDOWN_ALL = runs.shutdown_all
@@ -46,6 +46,7 @@ def maintenance_fixture(tmp_path, monkeypatch):
         ("papers", main.papers, "prune_old"),
         ("retention", runs, "prune_expired_runs"),
         ("receipts", main, "_prune_receipts"),
+        ("auxiliary_usage", main.auxiliary_usage, "prune"),
     ):
         operations[name] = Mock(return_value=[])
         monkeypatch.setattr(module, attribute, operations[name])

@@ -98,6 +98,11 @@ activation follows.
 Planning/translation now shares complete provider configuration with the main
 factory; fixed BYOK destinations and narrow credential/content-safe diagnostics
 are offline-tested. Historical node usage totals still exclude auxiliary calls.
+An [independent auxiliary observation ledger](results-2026-09-27-auxiliary-llm-accounting.md)
+now records new language-helper attempts and inline PDF invocation summaries,
+with safe sidecar/status delivery and reference-only prior PDF observations.
+This does not reconstruct history, include search-service charges, establish
+hidden SDK retry costs or make the Crew total an end-to-end invoice.
 See the [verified repair and limits](results-2026-09-10-provider-and-log-boundaries.md).
 
 The documentation audit reran the unmodified code and obtained 2071 tests plus
@@ -679,9 +684,10 @@ The [earlier warning-only observation](results-2026-09-08-paid-refresh-warning.m
 remains historical. Neither mechanism proves provider exactly-once billing,
 disk-loss recovery or measured user savings.
 
-The immediate maintenance work is independent auxiliary-call accounting:
-planning, translation and inline PDF extraction are not part of Crew-node
-totals. Keep unknown use explicit and do not reconstruct historical bills.
+Independent auxiliary-call observations now have their own delivery contract;
+planning, translation and inline PDF extraction are still not part of Crew-node
+totals. Full auxiliary/provider billing remains unestablished. Keep unknown use
+explicit and do not reconstruct historical bills.
 Real deployment backup/restore preparation is conditional on continuing to
 retain user data; the existing synthetic restore rehearsal is not an observed
 Railway recovery. Neither item requires reopening a consumed paid experiment.

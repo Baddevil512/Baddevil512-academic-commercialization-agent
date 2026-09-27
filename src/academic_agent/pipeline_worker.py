@@ -465,6 +465,7 @@ def main() -> None:
     parser.add_argument("--language", default="", help="Force output language (overrides auto-detect)")
     parser.add_argument("--weight-profile", default="", help="Force scoring weight profile (overrides auto-detect)")
     parser.add_argument("--paper-json", default="", help="Path to JSON file containing PaperContribution data")
+    parser.add_argument("--auxiliary-handoff", default=None, help="Code-owned, bounded non-secret usage handoff")
     parser.add_argument(
         "--run-spec", default="",
         help="Path to the durable RunSpec stored inside this run directory",
@@ -555,6 +556,10 @@ def main() -> None:
     status_lock = threading.RLock()
     usage_lock = threading.Lock()
     usage_snapshot: dict[str, Any] | None = None
+    from contextlib import ExitStack
+    from academic_agent.auxiliary_usage import Collector, FILE_NAME, bind, decode_handoff
+
+    auxiliary = Collector(run_dir / FILE_NAME, initial=decode_handoff(args.auxiliary_handoff))
 
     def write_status(
         stage: str,
@@ -604,6 +609,9 @@ def main() -> None:
                 data["usage"] = usage
             if usage_accounting is not None:
                 data["usage_accounting"] = usage_accounting
+            # A safe fault hint, never a new field in terminal v1 or Crew usage.
+            data["auxiliary_usage_storage_failed"] = auxiliary.ledger.storage_failed
+            data["auxiliary_usage_snapshot"] = auxiliary.snapshot()
             if runtime_budget is not None:
                 data["runtime_budget"] = runtime_budget
             if claim_grounding is not None:
@@ -732,6 +740,8 @@ def main() -> None:
                 )
             return copy.deepcopy(usage_snapshot)
 
+    auxiliary_scope = ExitStack()
+    auxiliary_scope.enter_context(bind(auxiliary))
     try:
         if args.run_spec:
             expected_spec = (run_dir / RUN_SPEC_FILENAME).resolve()
@@ -1261,6 +1271,7 @@ def main() -> None:
                   f"report's recommendation disagrees with its own scorecard",
                   flush=True)
 
+        auxiliary.finish()
         final_usage = snapshot_usage(emit=True)
         final_accounting = _usage_accounting_snapshot(
             final_usage,
@@ -1327,6 +1338,7 @@ def main() -> None:
         except Exception as _save_err:
             print(f"[worker] save_error failed: {_save_err}", file=sys.stderr)
         print(error_details, file=sys.stderr, flush=True)
+        auxiliary.finish()
         error_usage = snapshot_usage(emit=True)
         error_accounting = _usage_accounting_snapshot(
             error_usage,
@@ -1358,6 +1370,9 @@ def main() -> None:
             checkpoint_state=checkpoint_snapshot,
         )
         sys.exit(1)
+    finally:
+        auxiliary.finish()
+        auxiliary_scope.close()
 
 
 if __name__ == "__main__":

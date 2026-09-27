@@ -1,5 +1,7 @@
 # Experiment archive index
 
+- [2026-09-27 auxiliary LLM accounting](results-2026-09-27-auxiliary-llm-accounting.md): independent language/PDF observations, actual-thread settlement, read-only receipts and reference-only PDF associations; unknown usage and failed-storage lower bounds stay explicit, no new paid run or end-to-end invoice claim.
+
 - [2026-09-27 positive saved-source selection closeout](results-2026-09-27-positive-source-selection-closeout.md): four existing native requests, mechanics 4/4, development-reference agreement 3/4, three exact saved-text deliveries and one decline; USD 0.003559650 frozen-rate estimate, reference-aware post hoc LLM audit, closed failed batch and immutable preparation reference rather than a new main-branch executor.
 
 - [2026-09-27 ordered-window offline rule](prereg-2026-09-27-ordered-window-conjunction-offline.md) and [comparison result](results-2026-09-27-ordered-window-conjunction-offline.md): fixed queries, old and combined coverage 1/11, zero additions; failed development gate, uncertain reference and early self-test computation retained, isolated reproduction archive, no provider calls or production change.

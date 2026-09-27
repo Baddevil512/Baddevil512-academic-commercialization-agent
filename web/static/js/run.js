@@ -1,7 +1,7 @@
 /* Live run: stage model, polling, and the progress view. */
 
 import * as api from "./api.js";
-import { t } from "./i18n.js";
+import { t, language as uiLanguage } from "./i18n.js";
 
 /* ── Stage model ───────────────────────────────────────────────────────
  * The worker reports one free-text stage string at a time. The UI shows the
@@ -202,6 +202,60 @@ export function usageTitle(usage, accounting = null) {
     lines.push(`${agent.role}: ${agent.total_tokens} · ${cost}`);
   }
   return lines.join("\n");
+}
+
+// i18n.js is a byte-frozen SLC observer asset. New production-only labels
+// stay here, not in that historical asset or its manifest/hash allowlist.
+const AUXILIARY_STRINGS = {
+  English: {
+    aux_not_recorded: "Auxiliary LLM usage not recorded (not zero)",
+    aux_unreadable: "Auxiliary LLM usage unreadable (not zero)",
+    aux_scope: "Auxiliary LLM only",
+    aux_calls: "Invocations",
+    aux_tokens: "Observed tokens",
+    aux_estimate: "Observed cost estimate",
+    aux_partial: "Incomplete / lower bound",
+    aux_write_failed: "Accounting storage failed",
+    aux_reference: "PDF extraction is a historical reference, not a new charge",
+    aux_limits: "Excludes Crew/search-provider costs; not a full invoice",
+  },
+  "Simplified Chinese": {
+    aux_not_recorded: "辅助 LLM 用量未记录（并非零费用）",
+    aux_unreadable: "辅助 LLM 用量不可读（并非零费用）",
+    aux_scope: "仅辅助 LLM",
+    aux_calls: "调用次数",
+    aux_tokens: "已观测 token",
+    aux_estimate: "已观测估算费用",
+    aux_partial: "不完整／下界",
+    aux_write_failed: "用量记录存储失败",
+    aux_reference: "PDF 提取仅为历史引用，不是新费用",
+    aux_limits: "不含 Crew／搜索提供商费用；不是完整账单",
+  },
+};
+
+/** Independent helper observations; never folded into Crew's numeric total. */
+export function auxiliarySummary(value) {
+  const labels = AUXILIARY_STRINGS[uiLanguage()] ?? AUXILIARY_STRINGS.English;
+  const t = key => labels[key];
+  if (value == null || value?.record_state === "not_recorded") return t("aux_not_recorded");
+  const count = v => v === null || (Number.isSafeInteger(v) && v >= 0);
+  const cost = v => v === null || (typeof v === "number" && Number.isFinite(v) && v >= 0);
+  if (typeof value !== "object" || Array.isArray(value) || value.schema_version !== 1
+      || value.accounting_scope !== "auxiliary_llm" || value.end_to_end_cost_complete !== false
+      || !["recorded", "write_failed", "unreadable"].includes(value.record_state)
+      || !["complete", "partial", "pending", "unavailable"].includes(value.coverage)
+      || typeof value.cost_complete !== "boolean"
+      || ![value.call_count, value.provider_attempt_count, value.total_tokens, value.observed_tokens].every(count)
+      || !cost(value.observed_cost_usd)) return t("aux_unreadable");
+  if (value.record_state === "unreadable") return t("aux_unreadable");
+  const parts = [t("aux_scope"), `${t("aux_calls")}: ${value.call_count ?? "—"}`,
+    `${t("aux_tokens")}: ${value.observed_tokens ?? "—"}`,
+    `${t("aux_estimate")}: ${value.observed_cost_usd === null ? "—" : "$" + String(value.observed_cost_usd)}`];
+  if (value.coverage !== "complete" || !value.cost_complete) parts.push(t("aux_partial"));
+  if (value.record_state === "write_failed") parts.push(t("aux_write_failed"));
+  if (value.pdf_reference?.relation === "reference_only") parts.push(t("aux_reference"));
+  parts.push(t("aux_limits"));
+  return parts.join(" · ");
 }
 
 /** Code-owned read faults, not inferred billing or checkpoint success. */

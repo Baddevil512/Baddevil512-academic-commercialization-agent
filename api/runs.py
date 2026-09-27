@@ -688,6 +688,7 @@ def _start_run_from_spec(
     byok: BYOKCredentials | None = None,
     owner: str | None = None,
     resume_from: str | None = None,
+    auxiliary_pdf_reference: dict | None = None,
 ) -> tuple[str, Path]:
     """Launch a worker subprocess. Returns (run_id, run_dir).
 
@@ -768,6 +769,14 @@ def _start_run_from_spec(
             snapshot_root = run_dir / RESUME_SNAPSHOT_DIRECTORY
             shutil.copytree(source_checkpoints, snapshot_root / "checkpoints")
 
+            from academic_agent.auxiliary_usage import run_reference
+            auxiliary_pdf_reference = run_reference(source_directory)
+
+        # Freeze only the authorized PDF association, not parent helper costs.
+        from academic_agent.auxiliary_usage import Collector, FILE_NAME, encode_handoff
+        initial_auxiliary = Collector(run_dir / FILE_NAME, pdf_reference=auxiliary_pdf_reference)
+        auxiliary_handoff = encode_handoff(initial_auxiliary.snapshot())
+
 
         # One deadline travels to both the worker and the parent reaper. The
         # monotonic handle remains authoritative here; the wall value is
@@ -778,6 +787,7 @@ def _start_run_from_spec(
         cmd = [
             sys.executable, "-m", "academic_agent.pipeline_worker",
             run_id, spec.topic, "--run-spec", str(spec_path),
+            "--auxiliary-handoff", auxiliary_handoff,
             "--hard-deadline-epoch", repr(hard_deadline_epoch),
             "--hard-timeout-seconds", str(TIMEOUT_SECONDS),
         ]
@@ -871,6 +881,7 @@ def start_run(
     decision_context: DecisionContext | None = None,
     byok: BYOKCredentials | None = None,
     owner: str | None = None,
+    auxiliary_pdf_reference: dict | None = None,
 ) -> tuple[str, Path]:
     """Launch a new worker from a durable, non-secret input contract."""
 
@@ -881,7 +892,8 @@ def start_run(
         paper_json_path,
         decision_context,
     )
-    return _start_run_from_spec(spec, byok=byok, owner=owner)
+    return _start_run_from_spec(spec, byok=byok, owner=owner,
+                                auxiliary_pdf_reference=auxiliary_pdf_reference)
 
 
 def resume_run(
@@ -1531,10 +1543,15 @@ def get_state(run_id: str) -> dict:
         "checkpointing": checkpointing, "recovery": recovery,
     })
 
+    from academic_agent.auxiliary_usage import FILE_NAME, read_summary
+    auxiliary = read_summary(run_dir / FILE_NAME,
+        storage_failed=status.get("auxiliary_usage_storage_failed") is True,
+        fallback=status.get("auxiliary_usage_snapshot"))
     return {
         "run_id": run_id,
         "state": state,
         "status_record_state": status_record_state,
+        "auxiliary_usage": auxiliary,
         "audit_metadata_unreadable": audit_metadata_unreadable,
         "runtime_metadata_unreadable": runtime_metadata_unreadable,
         "stage": status.get("stage") or (terminal_record.last_stage if terminal_record else ""),
