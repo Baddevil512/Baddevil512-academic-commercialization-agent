@@ -317,6 +317,13 @@ mechanics 4/4, positive coverage 1/3, explicit decline 1/1. The long English
 proposals missed literal lookup; do not repair/replay the batch or treat zero
 visible distractors from empty results as precision evidence. No production admission.
 
+The separate [ordered-window offline comparison](docs/results-2026-09-27-ordered-window-conjunction-offline.md)
+is also closed: the unchanged baseline and augmented result both covered 1/11
+positive questions, with zero additions. Its isolated `evals/` archive is not
+a production search module or a new default test suite. Preserve its LLM
+reference uncertainty and disclosed early self-test execution; do not retune
+the consumed cohort or interpret zero returned candidates as useful precision.
+
 The [production saved-source wrapper](docs/operating-guide.md#optional-saved-source-locator)
 is a distinct default-off successor. Its new `/source-locator` page and API paths
 must preserve owner-code authorization, explicit question/catalog transfer

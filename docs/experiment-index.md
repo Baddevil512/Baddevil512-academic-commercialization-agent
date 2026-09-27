@@ -1,5 +1,7 @@
 # Experiment archive index
 
+- [2026-09-27 ordered-window offline rule](prereg-2026-09-27-ordered-window-conjunction-offline.md) and [comparison result](results-2026-09-27-ordered-window-conjunction-offline.md): fixed queries, old and combined coverage 1/11, zero additions; failed development gate, uncertain reference and early self-test computation retained, isolated reproduction archive, no provider calls or production change.
+
 - [2026-09-27 NQ native query result](results-2026-09-27-candidate-query-synthetic-canary.md): four requests, mechanics 4/4, positive coverage 1/3 and explicit decline 1/1; closed failed development batch, USD 0.001421807 frozen-rate estimate, no production admission.
 
 - [2026-09-26 NQ synthetic query protocol](prereg-2026-09-26-candidate-query-synthetic-canary.md): pre-live question-only controls, separate candidate coverage/cancellation/mechanical gates and durable aggregate slots; known development miss retained and later native results recorded separately, no production activation.
