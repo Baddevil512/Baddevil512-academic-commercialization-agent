@@ -7,9 +7,11 @@ observations of paid work. No selector/transport/worker runs even while seeding.
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 import hashlib
+import importlib.util
 import inspect
 import json
 import os
@@ -19,7 +21,7 @@ import sqlite3
 import stat
 import subprocess
 import sys
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from unittest.mock import Mock
 from urllib.parse import unquote, urlparse
 import urllib.request
@@ -28,7 +30,7 @@ import dotenv
 import httpx
 import pytest
 
-from academic_agent import pdf_extractor, report_evidence_source_locator as locator
+from academic_agent import auxiliary_usage as aux, pdf_extractor, report_evidence_source_locator as locator
 from academic_agent import saved_source_accounted_qwen as accounted_qwen
 from academic_agent import report_evidence_source_locator_qwen_transport as native
 from academic_agent.checkpoints import CheckpointIdentity, CheckpointStore, hash_json
@@ -42,6 +44,7 @@ from academic_agent.run_terminal import (
 )
 from academic_agent.saved_source_loader import SavedSourceLoader
 from api import access, papers, receipts, runs
+from api import auxiliary_usage as pdf_usage
 from api import saved_source_accounting as accounting
 from api import saved_source_controller as controller
 from api import saved_source_production_policy as policy
@@ -58,7 +61,10 @@ SELECTOR_ID = "synthetic-stored-history-not-executed"
 LOCATOR_DIR = ".source-locator-v1"
 LEDGER = ".paid-operation-ledger.json"
 REPORT = "# SYNTHETIC offline report\n\nFixture only; no research claim.\n"
-EXTRACTION = {"title": "SYNTHETIC pending paper", "contribution": "Offline fixture only"}
+EXTRACTION = {
+    "title": "SYNTHETIC pending paper", "core_contribution": "Offline fixture only",
+    "application_domain": "Synthetic fixtures", "commercialization_topic": "Synthetic restoration",
+}
 SCORES = {"synthetic": True, "score": 3.5, "semantic_support": "not_assessed"}
 MAX_ENTRIES, MAX_BYTES = 128, 2 * 1024 * 1024
 
@@ -268,8 +274,9 @@ def offline_guard(monkeypatch, tmp_path, stub_llm_calls):
         for db in connections:
             assert db.closed_verified, "SQLite connection did not complete a verified real close"
         assert runs._registry == runs._stop_claims == runs._inline_paid_operations == {}
+        assert pdf_usage._ACTIVE == {} and aux.current() is None
 
-    yield SimpleNamespace(quiesced=quiesced)
+    yield SimpleNamespace(quiesced=quiesced, block=block)
     try:
         quiesced()
     finally:
@@ -284,6 +291,82 @@ def _roots(monkeypatch, root):
     for name in ("_registry", "_stop_claims", "_inline_paid_operations", "_daily_counts"):
         monkeypatch.setattr(runs, name, {})
     monkeypatch.setattr(runs, "_daily_date", None)
+    monkeypatch.setattr(pdf_usage, "_ACTIVE", {})
+    monkeypatch.setattr(pdf_usage, "_FAULTS", {})
+
+
+@pytest.fixture
+def application_readers(monkeypatch, offline_guard):
+    """Load real handlers without dotenv reads, lifespan or cached main aliases.
+
+    An isolated module avoids leaking import-time patched aliases into api.main
+    in later tests. The unused provider-configuration import is fail-fast stubbed
+    before it can initialize CrewAI (whose import itself invokes dotenv). Only
+    main's explicit dotenv hook is ignored; network/execution guards stay active.
+    These are handler/model observations, not an HTTP or browser rehearsal.
+    """
+    path = Path(__file__).resolve().parents[1] / "api" / "main.py"
+    spec = importlib.util.spec_from_file_location("_offline_volume_readers", path)
+    module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, spec.name, module)
+    monkeypatch.setenv("SOURCE_LOCATOR_ENABLED", "0")
+    provider_config = ModuleType("academic_agent.llm_config")
+    for name in ("_detect_provider", "validate_llm_configuration"):
+        setattr(provider_config, name, None)
+        offline_guard.block(provider_config, name)
+    ignored_dotenv = Mock(return_value=False)
+    with monkeypatch.context() as patch:
+        patch.setitem(sys.modules, provider_config.__name__, provider_config)
+        patch.setattr(dotenv, "load_dotenv", ignored_dotenv)
+        spec.loader.exec_module(module)
+    ignored_dotenv.assert_called_once_with(path.parents[1] / ".env")
+    assert module._source_locator is None and module._maintenance_task is None
+    for name in ("extract_paper_contribution", "_process_uploaded_paper", "_extract_paper_with_paid_reservation",
+                 "submit_run", "resume_run", "upload_paper", "get_report_pdf", "_lifespan", "_reaper"):
+        offline_guard.block(module, name)
+    yield module
+    ignored_dotenv.assert_called_once_with(path.parents[1] / ".env")
+    assert module._source_locator is None and module._maintenance_task is None
+
+
+@contextmanager
+def _source_unavailable(volume):
+    """Temporarily hide only this confined synthetic source, retaining all bytes."""
+    source = _confined(volume.source, volume.sandbox)
+    hidden = _confined(volume.sandbox / "source-unavailable", volume.sandbox, absent=True)
+    boundary = volume.sandbox.resolve(strict=True)
+    assert source.resolve(strict=True).is_relative_to(boundary)
+    assert hidden.resolve(strict=False).is_relative_to(boundary)
+    source.rename(hidden)
+    try:
+        assert not source.exists()
+        yield
+    finally:
+        _confined(hidden, volume.sandbox)
+        _confined(source, volume.sandbox, absent=True)
+        assert hidden.resolve(strict=True).is_relative_to(boundary)
+        assert source.resolve(strict=False).is_relative_to(boundary)
+        hidden.rename(source)
+
+
+@contextmanager
+def _no_observation_writes(monkeypatch):
+    """Catch swallowed attempts to repair, settle or recreate auxiliary records."""
+    guards = []
+    with monkeypatch.context() as patch:
+        for obj, names in ((aux.Collector, ("__init__", "_save", "begin", "settle", "finish")),
+                           (pdf_usage, ("paper_operation", "prune")),
+                           (receipts.Ticket, ("bind", "finish")), (receipts, ("claim",))):
+            for name in names:
+                guard = Mock(side_effect=AssertionError(f"Read attempted accounting write: {name}"))
+                patch.setattr(obj, name, guard)
+                guards.append(guard)
+        try:
+            yield
+        finally:
+            for guard in guards:
+                guard.assert_not_called()
+            assert pdf_usage._ACTIVE == pdf_usage._FAULTS == {}
 
 
 def _stored_locator(snapshot):
@@ -359,6 +442,24 @@ def volume(tmp_path, monkeypatch, offline_guard):
     paper.mkdir(parents=True)
     (paper / ".owner").write_text(owner, encoding="utf-8")
     papers.save_extraction(PAPER_ID, EXTRACTION)
+    # Real accounting writers, entirely synthetic observations: no SDK, HTTP
+    # helper or extraction is constructed/called to generate these counters.
+    with pdf_usage.paper_operation(PAPER_ID) as pdf:
+        sequence = pdf.begin("pdf_extraction", "llm_invocation", "qwen3.5-plus")
+        pdf.settle(sequence, aux.Tokens(prompt_tokens=113, completion_tokens=29), "returned")
+    reference = pdf_usage.paper_reference(PAPER_ID)
+    collector = aux.Collector(run / aux.FILE_NAME, pdf_reference=reference)
+    sequence = collector.begin("search_planning", "http_attempt", "qwen3.5-plus")
+    collector.settle(sequence, aux.Tokens(prompt_tokens=11, completion_tokens=7), "returned")
+    collector.begin("translation", "http_attempt", "qwen3.5-plus")
+    # A terminal outcome is not auxiliary settlement. The second observation
+    # stays pending/unknown even though the immutable run says completed.
+    _json(run / "status.json", {"topic": spec.topic, "done": True, "stage": "Done",
+                               "auxiliary_usage_snapshot": collector.snapshot()})
+    auxiliary, pdf_summary = collector.summary(), pdf_usage.paper_summary(PAPER_ID)
+    assert auxiliary["observed_tokens"] == 18 and auxiliary["total_tokens"] is None
+    assert auxiliary["calls"][1]["observed_cost_usd"] is None
+    assert pdf_summary["observed_tokens"] == 142 and pdf_summary["provider_attempt_count"] is None
     # Real storage writer, synthetic counts; never actual paid admission.
     monkeypatch.setattr(runs, "_daily_counts", {owner: 2})
     with runs._registry_lock:
@@ -402,6 +503,7 @@ def volume(tmp_path, monkeypatch, offline_guard):
         source=source, sandbox=sandbox, frozen=frozen, owner=owner, spec=spec, terminal=terminal,
         identity=identity, checkpoint_payload=payload, checkpoint_file=manifest.output_file,
         result=expected_result, operation=operation, guard=offline_guard,
+        auxiliary=auxiliary, pdf_summary=pdf_summary, pdf_reference=reference,
     )
 
 
@@ -418,7 +520,36 @@ async def _lookup(root, key):
         assert value._threads == {}
 
 
-def _read_restored(volume, root, monkeypatch):
+def _read_auxiliary(volume, root, readers, *, expected_run=None, expected_pdf=None):
+    """Observe actual handler/model projections and replay, never imitate them."""
+    expected_run = volume.auxiliary if expected_run is None else expected_run
+    expected_pdf = volume.pdf_summary if expected_pdf is None else expected_pdf
+    assert pdf_usage.paper_path(PAPER_ID) == root / "_auxiliary_usage" / f"{PAPER_ID}.json"
+    assert pdf_usage._ACTIVE == pdf_usage._FAULTS == {}
+    request = readers.Request({"type": "http", "headers": [
+        (b"idempotency-key", _key(2).encode("ascii")), (b"x-access-code", CODE.encode("ascii"))]})
+    for _ in range(2):
+        for response in (readers.get_run(RUN_ID), readers.get_progress(RUN_ID, since=0)):
+            body = response.model_dump(mode="json")
+            assert body["auxiliary_usage"] == expected_run
+            assert body["state"] == "completed" and body["terminal"]["record_state"] == "committed"
+            assert body["usage"] is None and body["usage_accounting"]["state"] == "unavailable"
+        assert pdf_usage.paper_summary(PAPER_ID) == expected_pdf
+        response = readers.Response()
+        receipt = readers.get_paid_receipt(request, response).model_dump(mode="json")
+        assert response.headers["Cache-Control"] == "no-store"
+        assert receipt["state"] == "accepted" and receipt["resource_id"] == PAPER_ID
+        assert receipt["auxiliary_usage"] == receipt["response"]["auxiliary_usage"] == expected_pdf
+        assert all(receipt["response"][name] == value for name, value in EXTRACTION.items())
+        record = receipts.lookup(root, _key(2), volume.owner)
+        replay = readers._replay_receipt(record)
+        assert replay.status_code == 200 and replay.headers["Idempotency-Replayed"] == "true"
+        assert json.loads(replay.body) == receipt["response"]
+    assert load_terminal_record(root / RUN_ID) == volume.terminal
+    assert _sha((root / RUN_ID / "terminal.json").read_bytes()) == volume.frozen[f"{RUN_ID}/terminal.json"].sha256
+
+
+def _read_restored(volume, root, monkeypatch, readers):
     """Fresh reader instances/cache reset, not a worker restart or paid replay."""
     _roots(monkeypatch, root)
     monkeypatch.setattr(receipts, "_EPOCH", "synthetic-restarted-observer")
@@ -472,19 +603,35 @@ def _read_restored(volume, root, monkeypatch):
     assert set(path.name for path in native_dir.iterdir()) == {"manifest.json", "events.jsonl"}
     for path in native_dir.iterdir():
         assert _sha(path.read_bytes()) == volume.frozen[path.relative_to(root).as_posix()].sha256
+    with _no_observation_writes(monkeypatch):
+        _read_auxiliary(volume, root, readers)
+    # Current helper observations exclude the historical invocation; duplicate
+    # status/sidecar snapshots also reconcile rather than accumulate.
+    auxiliary = state["auxiliary_usage"]
+    assert auxiliary["call_count"] == auxiliary["provider_attempt_count"] == 2
+    assert auxiliary["observed_tokens"] == 18 and auxiliary["total_tokens"] is None
+    assert auxiliary["coverage"] == "pending" and not auxiliary["cost_complete"]
+    assert auxiliary["calls"][1]["tokens"] is auxiliary["calls"][1]["observed_cost_usd"] is None
+    assert auxiliary["observed_cost_usd"] == auxiliary["calls"][0]["observed_cost_usd"] > 0
+    assert auxiliary["pdf_reference"] == {"relation": "reference_only", "observation": volume.pdf_summary}
+    assert auxiliary["pdf_reference"]["observation"]["observed_tokens"] == 142
+    assert not auxiliary["end_to_end_cost_complete"]
+    assert aux.run_reference(root / RUN_ID) == volume.pdf_reference
     volume.guard.quiesced()
 
 
-def test_quiesced_copy_real_readers_preserve_every_byte(volume, monkeypatch):
+def test_quiesced_copy_real_readers_preserve_every_byte(volume, monkeypatch, application_readers):
     """Visible-only copies can conceal lost hidden admission and ownership state."""
     assert {
         ".", LEDGER, ".paid-receipts.sqlite3", f"{RUN_ID}/.owner", f"{RUN_ID}/.run-spec.json",
         f"{RUN_ID}/.resume-source", f"_papers/{PAPER_ID}/.owner",
         f"{LOCATOR_DIR}/{locator_receipts.FILENAME}", f"{LOCATOR_DIR}/{accounting.FILENAME}",
         f"{LOCATOR_DIR}/{policy.FILENAME}",
+        f"{RUN_ID}/{aux.FILE_NAME}", "_auxiliary_usage", f"_auxiliary_usage/{PAPER_ID}.json",
     } <= volume.frozen.keys()
     restored = _copy_fresh(volume.source, volume.sandbox / "restored", volume.sandbox, volume.frozen)
-    _read_restored(volume, restored, monkeypatch)
+    with _source_unavailable(volume):
+        _read_restored(volume, restored, monkeypatch, application_readers)
     # Legacy receipts may open SQLite RW. Assert byte invariance, not OS readonly
     # enforcement, immutable mounts, or absence of transient filesystem I/O.
     _matches(restored, volume.sandbox, volume.frozen)
@@ -567,7 +714,101 @@ def test_locator_damage_never_redispatches_or_claims_zero_cost(volume, monkeypat
     _matches(volume.source, volume.sandbox, volume.frozen)
 
 
-def test_intact_old_snapshot_is_not_freshness_or_paid_resume_authority(volume, monkeypatch):
+def test_auxiliary_copy_loss_preserves_uncertainty_and_terminal(volume, monkeypatch, application_readers):
+    """Lost sidecars cannot become free work, erase a fallback or reprice a PDF reference."""
+    for index, (kind, damage, fallback) in enumerate((
+        ("run", "missing", True), ("run", "corrupt", True),
+        ("run", "missing", False), ("run", "corrupt", False),
+        ("pdf", "missing", False), ("pdf", "corrupt", False),
+    )):
+        restored = _copy_fresh(volume.source, volume.sandbox / f"aux-damage-{index}", volume.sandbox, volume.frozen)
+        _roots(monkeypatch, restored)
+        target = restored / RUN_ID / aux.FILE_NAME if kind == "run" else pdf_usage.paper_path(PAPER_ID)
+        if damage == "missing":
+            _confined(target, volume.sandbox)
+            assert target.resolve(strict=True).is_relative_to(volume.sandbox.resolve(strict=True))
+            target.unlink()
+        else:
+            target.write_bytes(b"{synthetic truncated auxiliary observation")
+        if kind == "run" and not fallback:
+            status_path = restored / RUN_ID / "status.json"
+            status = json.loads(status_path.read_text(encoding="utf-8"))
+            del status["auxiliary_usage_snapshot"]
+            _json(status_path, status)
+        with pytest.raises(InventoryRejected, match="inventory mismatch"):
+            _matches(restored, volume.sandbox, volume.frozen)
+        damaged = _inventory(restored, volume.sandbox)
+        missing = aux.unavailable("not_recorded" if damage == "missing" else "unreadable")
+        expected_run, expected_pdf = volume.auxiliary, volume.pdf_summary
+        if kind == "run":
+            expected_run = {**volume.auxiliary, "record_state": "write_failed"} if fallback else missing
+        else:
+            expected_pdf = missing
+        with _source_unavailable(volume), _no_observation_writes(monkeypatch):
+            _read_auxiliary(volume, restored, application_readers,
+                            expected_run=expected_run, expected_pdf=expected_pdf)
+            observed = runs.get_state(RUN_ID)["auxiliary_usage"] if kind == "run" else pdf_usage.paper_summary(PAPER_ID)
+            assert observed["total_tokens"] is None and not observed["cost_complete"]
+            if kind == "run" and fallback:
+                assert observed["observed_tokens"] == 18 and observed["observed_cost_usd"] > 0
+                assert observed["calls"][1]["total_tokens"] is observed["calls"][1]["observed_cost_usd"] is None
+            else:
+                assert observed["call_count"] is observed["observed_tokens"] is observed["observed_cost_usd"] is None
+            if kind == "pdf":
+                # The private source ledger can disappear without changing the
+                # already-frozen association or adding its old cost to this run.
+                assert aux.run_reference(restored / RUN_ID) == volume.pdf_reference
+                assert runs.get_state(RUN_ID)["auxiliary_usage"]["observed_tokens"] == 18
+        volume.guard.quiesced()
+        _matches(restored, volume.sandbox, damaged)
+        _matches(volume.source, volume.sandbox, volume.frozen)
+
+
+def test_failed_auxiliary_publication_restores_status_lower_bound(volume, monkeypatch, application_readers):
+    """A copied pending sidecar must reconcile the newer failed-write status, not sum it."""
+    run = volume.source / RUN_ID
+    collector = aux.Collector(run / aux.FILE_NAME)
+    pending_bytes = collector.path.read_bytes()
+    real_open = Path.open
+
+    def fail_publication(path, *args, **kwargs):
+        if path == collector.path.with_suffix(".json.tmp"):
+            raise OSError("Synthetic auxiliary publication failure before temporary creation")
+        return real_open(path, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "open", fail_publication)
+        collector.settle(1, None, "call_failed")
+        collector.finish()
+    assert collector.path.read_bytes() == pending_bytes
+    status_path = run / "status.json"
+    status = json.loads(status_path.read_text(encoding="utf-8"))
+    status.update(auxiliary_usage_snapshot=collector.snapshot(), auxiliary_usage_storage_failed=True)
+    _json(status_path, status)
+    volume.auxiliary = collector.summary()
+    assert volume.auxiliary["record_state"] == "write_failed" and volume.auxiliary["coverage"] == "partial"
+    # Freeze this scenario before copying, including its independent fallback.
+    volume.guard.quiesced()
+    volume.frozen = _inventory(volume.source, volume.sandbox)
+    restored = _copy_fresh(volume.source, volume.sandbox / "failed-publication", volume.sandbox, volume.frozen)
+    _roots(monkeypatch, restored)
+    with _source_unavailable(volume), _no_observation_writes(monkeypatch):
+        _read_auxiliary(volume, restored, application_readers)
+        disk = aux.read_ledger(restored / RUN_ID / aux.FILE_NAME)
+        assert disk.calls[1].state == "pending" and not disk.operation_complete
+        observed = runs.get_state(RUN_ID)["auxiliary_usage"]
+        assert observed["calls"][1]["state"] == "settled" and observed["calls"][1]["outcome"] == "call_failed"
+        assert observed["call_count"] == 2 and observed["observed_tokens"] == 18
+        assert observed["total_tokens"] is observed["calls"][1]["observed_cost_usd"] is None
+        assert not observed["cost_complete"] and not observed["end_to_end_cost_complete"]
+        assert observed["observed_cost_usd"] == observed["calls"][0]["observed_cost_usd"] > 0
+        assert observed["pdf_reference"]["observation"]["observed_tokens"] == 142
+    volume.guard.quiesced()
+    _matches(restored, volume.sandbox, volume.frozen)
+    _matches(volume.source, volume.sandbox, volume.frozen)
+
+
+def test_intact_old_snapshot_is_not_freshness_or_paid_resume_authority(volume, monkeypatch, application_readers):
     """Old bytes remain intact/readable while later consumption is absent from them."""
     restored = _copy_fresh(volume.source, volume.sandbox / "old-snapshot", volume.sandbox, volume.frozen)
     _roots(monkeypatch, volume.source)
@@ -576,11 +817,16 @@ def test_intact_old_snapshot_is_not_freshness_or_paid_resume_authority(volume, m
         runs._write_daily_ledger_locked(DAY)
     ticket, _ = receipts.claim(volume.source, _key(6), volume.owner, "run", {"synthetic_later": True})
     ticket.bind(CHILD_ID)
+    # Later synthetic settlement is absent from the intact older copy too.
+    collector = aux.Collector(volume.source / RUN_ID / aux.FILE_NAME)
+    collector.settle(1, aux.Tokens(prompt_tokens=5, completion_tokens=3), "returned")
+    collector.finish()
     later = _inventory(volume.source, volume.sandbox)
     assert later != volume.frozen
     # Its OWN trusted earlier manifest passes: integrity is not freshness.
     _matches(restored, volume.sandbox, volume.frozen)
-    _read_restored(volume, restored, monkeypatch)
+    with _source_unavailable(volume):
+        _read_restored(volume, restored, monkeypatch, application_readers)
     with pytest.raises(receipts.ReceiptError) as missing:
         receipts.lookup(restored, _key(6), volume.owner)
     assert missing.value.code == "receipt_not_found"
@@ -588,6 +834,9 @@ def test_intact_old_snapshot_is_not_freshness_or_paid_resume_authority(volume, m
     with runs._registry_lock:
         assert runs._read_daily_ledger_locked(DAY)[volume.owner] == 3
     assert receipts.lookup(volume.source, _key(6), volume.owner)["resource_id"] == CHILD_ID
+    current = runs.get_state(RUN_ID)["auxiliary_usage"]
+    assert current["observed_tokens"] == current["total_tokens"] == 26 and current["coverage"] == "complete"
+    assert aux.read_summary(restored / RUN_ID / aux.FILE_NAME)["observed_tokens"] == 18
     _matches(restored, volume.sandbox, volume.frozen)
     _matches(volume.source, volume.sandbox, later)
 

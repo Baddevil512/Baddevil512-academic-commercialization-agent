@@ -692,6 +692,13 @@ Real deployment backup/restore preparation is conditional on continuing to
 retain user data; the existing synthetic restore rehearsal is not an observed
 Railway recovery. Neither item requires reopening a consumed paid experiment.
 
+The [auxiliary restoration extension](results-2026-09-29-auxiliary-volume-restore.md)
+now checks copied helper/PDF observations through actual handlers and models,
+with the original synthetic source unavailable and caches cleared. Unknown use,
+known fault lower bounds and historical PDF references remain distinct; repeated
+reads neither repair nor accumulate observations. This is not an HTTP/browser,
+process-restart or live-backup result, and real backup metadata remains unverified.
+
 1. The core metadata read fault path is now hardened through both HTTP endpoints,
    history and Chromium; see the [measured scope and limits](results-2026-09-05-runtime-metadata-integrity.md).
    Nine reliability-summary fields now have field-local read isolation and

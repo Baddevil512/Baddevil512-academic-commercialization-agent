@@ -13,6 +13,7 @@
 | How do I contribute and reproduce CI? | [Contributing](../CONTRIBUTING.md) |
 | How do checkpoints and recovery remain safe? | [Checkpoint recovery](checkpoint-recovery.md) |
 | What can an offline volume-copy rehearsal establish? | [Synthetic restore scope and operator prerequisites](offline-volume-restore.md) |
+| Does that rehearsal cover helper/PDF accounting? | [Synthetic auxiliary restoration and limits](results-2026-09-29-auxiliary-volume-restore.md) |
 | What happens on timeout or incomplete accounting? | [Runtime terminal integrity](runtime-terminal-integrity.md) |
 | Which helper calls are observed separately from Crew costs? | [Auxiliary LLM accounting and limits](results-2026-09-27-auxiliary-llm-accounting.md) |
 | How do traces avoid exporting private data? | [Observability](observability.md) |

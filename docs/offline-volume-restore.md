@@ -19,6 +19,10 @@ The fixture includes:
 - Run report, saved sources, synthetic scores, mutable status, immutable terminal,
   `.owner`, `.run-spec.json`, a retrieval checkpoint and `.resume-source/` checkpoint.
 - `_papers/<synthetic-id>/extraction.json` plus its owner marker; no raw PDF.
+- Run `auxiliary_usage.json` and its status fallback, plus
+  `_auxiliary_usage/<synthetic-paper-id>.json` and a frozen PDF reference.
+  Real auxiliary writers seed synthetic known and pending observations; no
+  helper HTTP request or SDK invocation creates these counters.
 - `.paid-operation-ledger.json` and `.paid-receipts.sqlite3`, with accepted run/paper
   receipts and an unresolved resume intent.
 - `.source-locator-v1/.saved-source-receipts-v1.sqlite3`,
@@ -60,12 +64,20 @@ Fresh readers point at the restored root and quota caches are reset:
 | Frozen input/outcome/checkpoint | `RunSpec.load`, `load_terminal_record`, `CheckpointStore.inspect` |
 | Pending extracted paper | `papers.load_extraction`, `extraction_path_for_run` with owner check |
 | Daily quota and general receipts | Raw daily-ledger reader/cache reload; `receipts.lookup` and `public_record` |
+| Auxiliary accounting delivery | Actual status/progress handlers and response models, paper receipt handler and replay projection; current and historical PDF use remain separate |
 | Locator saved-text delivery | `SavedSourceController.lookup` with **no selector**, plus `SavedSourceLoader` |
 | Accounting/control/native files | `AccountingStore.observe`; control readonly schema/row sanity; exact native bytes |
 
 Legacy receipt readers can open SQLite read/write. The assertion is **no changed
 bytes after observation**, not OS-enforced readonly access or absence of transient
-I/O. This does not simulate process restart, HTTP/browser delivery, worker
+I/O. Auxiliary observations also temporarily hide the confined synthetic source
+and clear the PDF active/fault caches before reading the copy. Writer/settlement
+guards and independent call-count assertions prohibit accidental repair during
+observation. The real handlers are loaded in an isolated module with unused
+provider configuration fail-fast stubbed and dotenv I/O prevented; no lifespan
+or maintenance runs. This is not full application startup verification.
+
+This does not simulate process restart, HTTP/browser transport delivery, worker
 hydration, checkpoint reuse execution, native journal semantics, or full score
 validation. In particular, `inspect == reusable` is storage-identity evidence,
 not permission to resume paid work.
@@ -120,8 +132,9 @@ its retention and disposal policy, and separate permission for that transfer.
 Restore inspection must not become automatic paid resumption.
 
 The new auxiliary LLM sidecars and private PDF observations are also under the
-output volume and must be included in a whole-volume inventory. The historical
-fixture list above does not establish their restored behavior. Preserve missing
+output volume and must be included in a whole-volume inventory. The
+[auxiliary extension](results-2026-09-29-auxiliary-volume-restore.md) now exercises
+their synthetic restored reader behavior, not an actual deployment restore. Preserve missing
 or failed accounting as uncertainty, and never combine reference-only PDF
 observations with a recovery child's newly incurred helper use.
 
