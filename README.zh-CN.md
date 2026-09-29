@@ -15,7 +15,7 @@
 — [2026-07-19 冻结版本，9673a83](https://github.com/shuxiachai/academic-commercialization-agent/blob/9673a8346c15f11b989ce8fd2d85be484d1c27b3/examples/solid-state-batteries-ev.md)。
 截图与样例来自不同历史运行，不代表当前模型准确率或最新市场判断。
 
-[文档导航](docs/README.md) · [项目案例](docs/portfolio-case-study.md)
+[从这里开始：文档与目录导航](docs/README.md) · [项目案例](docs/portfolio-case-study.md)
 
 技术实现为 Python、CrewAI、FastAPI 和无需构建的 JavaScript 客户端。
 生产环境刻意限制自主性：确定性代码先完成检索，六阶段模型工作流再分析
@@ -220,7 +220,7 @@ uv run python benchmark.py --dry-run
 
 ## 文档与限制
 
-- [文档地图](docs/README.md)：区分当前说明与历史决策。
+- [文档地图](docs/README.md)：按阅读目的找到入口，区分生产目录、历史实验与本地私人资料。
 - [证据台账](docs/evidence-status.md)：数据及其不能证明的内容。
 - [操作指南](docs/operating-guide.md)：配置、API、部署与评分。
 - [贡献指南](CONTRIBUTING.md)、[AGENTS.md](AGENTS.md)：约束与被否决的方法。
