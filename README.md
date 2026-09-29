@@ -17,7 +17,7 @@ The public report below can be read without keys or a new analysis.
 The screenshot and sample are different historical runs; neither represents
 current model accuracy or an up-to-date market assessment.
 
-[Documentation](docs/README.md) · [Case study](docs/portfolio-case-study.md)
+[Start here: documentation and repository map](docs/README.md) · [Case study](docs/portfolio-case-study.md)
 
 Built with Python, CrewAI, FastAPI and a build-free JavaScript client. The
 production system deliberately limits autonomy: retrieval is deterministic,
@@ -259,7 +259,8 @@ acceptance for up to 24 hours without another paid submission. Unknown outcomes
 remain explicit; this is not provider-level exactly-once or multi-replica scheduling.
 
 - [中文项目说明](README.zh-CN.md)
-- [Documentation map](docs/README.md) — current guides versus dated decisions.
+- [Documentation map](docs/README.md) — reading paths, repository layout and
+  the boundary between current guides, historical experiments and local/private material.
 - [Evidence ledger](docs/evidence-status.md) — measurements and what they cannot prove.
 - [Operating guide](docs/operating-guide.md) — setup, API, deployment and scoring.
 - [Contributing](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) — tested constraints
