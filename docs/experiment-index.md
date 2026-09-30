@@ -8,6 +8,8 @@ the current evidence status for today's qualified conclusions; open a dated
 protocol or result when tracing a specific decision. An archive link does not
 authorize rerunning a paid batch, moving its files or treating a failed gate as passed.
 
+- [2026-09-30 RFID evidence boundaries](results-2026-09-30-rfid-evidence-boundaries.md): compound-aware patent admission and cautious news provenance; saved-candidate replay and scripted comparison delivery, not native semantic prevention or a new paid experiment.
+
 - [2026-09-29 synthetic auxiliary restoration](results-2026-09-29-auxiliary-volume-restore.md): copied helper/PDF ledgers, source isolation, cleared caches, handler/model delivery, known lower bounds and unknown states; no double counting or read repair, original bounded inventory and stale-snapshot limits retained, no provider or real-volume operation.
 
 - [2026-09-27 auxiliary LLM accounting](results-2026-09-27-auxiliary-llm-accounting.md): independent language/PDF observations, actual-thread settlement, read-only receipts and reference-only PDF associations; unknown usage and failed-storage lower bounds stay explicit, no new paid run or end-to-end invoice claim.

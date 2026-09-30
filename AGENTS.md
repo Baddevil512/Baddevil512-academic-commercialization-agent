@@ -587,6 +587,13 @@ the [identity/logging regression and accounting limits](docs/results-2026-09-10-
 
 ## Keeping this index short without erasing decisions
 
+Patent relevance preserves the `battery-free` compound rather than using its
+negated noun as positive evidence. Content-shaped URLs are not proof of
+first-party ownership. Writer/Reviewer comparison instructions are mitigation,
+not a semantic validator; do not rewrite the motivating saved report or claim
+scripted correction delivery proves native reasoning. See the
+[RFID repair and qualified replay](docs/results-2026-09-30-rfid-evidence-boundaries.md).
+
 Market score delivery must disclose non-assessment, not promote the legacy
 untyped spread flag to verified USD disagreement. Reassert fresh/restored JSON
 metadata and retain the legacy browser fallback without changing score values.
