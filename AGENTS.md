@@ -594,6 +594,12 @@ not a semantic validator; do not rewrite the motivating saved report or claim
 scripted correction delivery proves native reasoning. See the
 [RFID repair and qualified replay](docs/results-2026-09-30-rfid-evidence-boundaries.md).
 
+The [Reviewer comparison batch](docs/results-2026-09-30-reviewer-comparison-preflight.md)
+closed before dispatch on selected-credential syntax: zero requests/deliveries,
+semantic review `not_run`. Its immutable preparation remains outside main at
+[`aa1c591526db40683413073e3c759ab690e7b013`](https://github.com/shuxiachai/academic-commercialization-agent/tree/aa1c591526db40683413073e3c759ab690e7b013/evals/reviewer_comparison_v1).
+Do not reopen the occupied output or treat missing answers as semantic success.
+
 Market score delivery must disclose non-assessment, not promote the legacy
 untyped spread flag to verified USD disagreement. Reassert fresh/restored JSON
 metadata and retain the legacy browser fallback without changing score values.
