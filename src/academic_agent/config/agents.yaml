@@ -137,6 +137,17 @@ commercialization_report_writer:
     inference drawn from the evidence rather than an observed fact, frame it
     as such ("analyst inference", "this suggests", "there may be an opportunity").
 
+    Comparison fidelity rule: Check sources[].evidence_summary as well as
+    model-authored findings. Preserve each measured subject, reference, units,
+    comparison conditions, and negative caveats. Do not turn a physical
+    difference into calibration error or merge distinct quantities with the
+    same units; preserve actual instrument-versus-reference error. An analyst
+    inference label cannot repair a false premise or justify a dependent
+    accuracy claim or decision gate. A threshold based only on that misread
+    comparison remains "not established"; relabelling it as a proposal does
+    not cure the derivation. Separately proposed analyst experiment targets
+    remain allowed with explicit proposal and owner-confirmation qualifications.
+
     Technology maturity rule: In the Technology Overview section, describe the
     technology's development stage using qualitative, evidence-based language —
     do NOT write a TRL number or range anywhere in the report body. Examples:
@@ -191,7 +202,8 @@ report_reviewer:
     Any sentence containing a number, percentage, market size, date, or
     quantified comparison must have at least one inline citation on the same
     line. If a number has no citation, either add the correct citation or
-    rephrase the claim as a qualified analyst inference.
+    rephrase the claim as a qualified analyst inference. Relabelling a
+    misinterpreted comparison as an inference does not repair its false premise.
 
     Rule 3 — Overconfident language:
     Replace absolute future-tense assertions ("will dominate", "is certain to",
@@ -209,7 +221,13 @@ report_reviewer:
     Rule 5 — Evidence consistency:
     You have access to the raw evidence JSON from the academic, patent, and
     market analysis tasks. Cross-check the report's major quantitative claims
-    and conclusions against the findings in those evidence JSONs.
+    and conclusions against sources[].evidence_summary as well as the
+    model-authored findings in those evidence JSONs. Preserve the measured
+    subject, reference, units, comparison conditions, and negative caveats for
+    each quantity. A physical difference is not calibration error: the latter
+    requires an instrument-versus-reference comparison for the same measured
+    quantity under the stated conditions. Keep mixed comparisons separate and
+    preserve genuinely reported calibration error, not a blanket denial.
     If the report asserts a fact or figure that is directly contradicted by
     the evidence (e.g., claims "TRL 8" but no market source confirms commercial
     products; claims "no competing patents" but the patent JSON shows dense
@@ -217,6 +235,10 @@ report_reviewer:
     correction item's reason. Do not alter claims that are simply not addressed by the
     evidence — only correct outright contradictions or significant
     overstatements relative to what the sources actually show.
+    When a comparison has been misinterpreted, use exact bounded replacements
+    for both that passage and every dependent accuracy claim, validation
+    target, recommendation, or decision gate. An inference label is not a cure
+    for a false premise. Leave supported claims and negative caveats intact.
 
     Rule 6 — No TRL number in narrative:
     Quantitative TRL scoring belongs exclusively to the Scorer; the Writer must
@@ -240,8 +262,13 @@ report_reviewer:
     jurisdiction, or mandatory decision threshold. Preserve supplied criteria,
     but call them owner-approved only when the guidance says so. Every additional
     threshold must be an explicit analyst proposal requiring owner confirmation;
-    a cited external benchmark does not establish owner approval. In
-    decision_support mode, preserve a supported GO, NO_GO, or DEFER conclusion,
+    a cited external benchmark does not establish owner approval. If a
+    misinterpreted comparison was the only basis for a threshold, write
+    "not established" and identify the missing measurement; an analyst label
+    does not rescue the false derivation. Preserve separately proposed analyst
+    experiment targets with the existing proposal and owner-confirmation
+    qualifications. In decision_support mode, preserve a supported GO, NO_GO,
+    or DEFER conclusion,
     but qualify any gate whose evidence is absent. This rule checks whether the
     report obeys its supplied decision boundary; it does not establish that the
     commercial decision itself is correct.

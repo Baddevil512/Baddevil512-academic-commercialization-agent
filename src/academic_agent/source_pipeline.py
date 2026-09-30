@@ -132,6 +132,7 @@ UrlChecker = Callable[[str], tuple[bool, str]]
 _DOI_PATTERN = re.compile(r"10\.\d{4,9}/[-._;()/:A-Z0-9]+", re.IGNORECASE)
 _TAG_PATTERN = re.compile(r"<[^>]+>")
 _WORD_PATTERN = re.compile(r"[a-z0-9]+")
+_BATTERY_FREE_PATTERN = re.compile(r"\bbattery[\s\-_\u2010-\u2015]+free\b", re.I)
 _TOPIC_STOPWORDS = {
     "analysis",
     "application",
@@ -287,6 +288,12 @@ _REPUTABLE_NEWS_DOMAINS = {
     "economist.com",
     "techcrunch.com",
     "axios.com",
+}
+# These hosts carry third-party reporting and syndicated announcements. A
+# /news/ or /company-news/ path cannot make them the announcing company's site.
+_SECONDARY_FINANCIAL_NEWS_DOMAINS = {
+    "finance.yahoo.com",
+    "investing.com",
 }
 _INDUSTRY_NEWS_DOMAINS = {
     "autoevolution.com",
@@ -1424,6 +1431,11 @@ def _patent_source_from_lens(
         return None, f"Lens patent has no lens_id: {title!r}"
     if not _title_matches_topic(title, research_topic):
         return None, f"Lens patent title not relevant to topic: {title!r}"
+    if (
+        _BATTERY_FREE_PATTERN.search(research_topic)
+        and _patent_title_score(title, research_topic) < 2
+    ):
+        return None, f"Lens patent title not relevant to battery-free topic: {title!r}"
 
     parties = biblio.get("parties") or {}
     applicant_list = parties.get("applicants") or []
@@ -1566,6 +1578,14 @@ def _market_source_profile(
             "medium",
             "Editorial source on the approved general-news list; verify primary claims.",
         )
+    if _host_matches(host, _SECONDARY_FINANCIAL_NEWS_DOMAINS):
+        return (
+            "reputable_news",
+            "medium",
+            f"Financial news host {host}; content may be syndicated. Hosting does "
+            "not establish the original release author or first-party company "
+            "provenance. Verify attribution and claims against the original source.",
+        )
     if _host_matches(host, _INDUSTRY_NEWS_DOMAINS):
         return (
             "reputable_news",
@@ -1593,10 +1613,15 @@ def _market_source_profile(
 
     path = urlsplit(canonical_url).path.lower()
     if path in {"", "/"} or any(marker in path for marker in _CONTENT_PATH_MARKERS):
+        # Preserve the legacy candidate category and admission budget, but a
+        # content-shaped URL proves neither company ownership nor authorship.
+        # Known secondary news hosts are classified above by DNS boundary.
         return (
             "company_disclosure",
             "medium",
-            "First-party company page; authoritative for its own claims but not independent.",
+            "Company-style content candidate inferred from URL shape; ownership "
+            "and first-party attribution are unverified. Corroborate claims at "
+            "the original source.",
         )
     return None
 
@@ -1779,6 +1804,32 @@ def _topic_domain_keywords(topic: str) -> frozenset[str]:
 def _normalise_text(text: str) -> str:
     """Lowercase and replace hyphens/underscores with spaces for consistent matching."""
     return re.sub(r"[-_]", " ", text.lower())
+
+
+def _patent_title_score(title: str, topic: str) -> int:
+    """Keep a negated battery noun from supplying a patent relevance match."""
+    keywords = _topic_keywords(topic)
+    bigrams = _topic_bigrams(topic)
+    compound_score = 0
+    if _BATTERY_FREE_PATTERN.search(topic):
+        # Splitting battery-free admitted sodium electrolytes and battery-cluster
+        # sensing on battery + temperature/sensing alone. Count the complete
+        # compound as a phrase, never either constituent on its own. A separate
+        # unnegated battery mention in the topic still supplies a keyword.
+        keywords = _topic_keywords(_BATTERY_FREE_PATTERN.sub(" ", topic))
+        bigrams = frozenset(
+            bg for bg in bigrams if not {"battery", "free"} & set(bg.split())
+        )
+        compound_score = 2 if _BATTERY_FREE_PATTERN.search(title) else 0
+    # This is not an exclusion of battery-powered competitors: RFID + temperature
+    # still qualifies active/semi-active tags. Do not require an application-domain
+    # word or extend the rule to all generic sensing terms.
+    normalized = _normalise_text(title)
+    return (
+        sum(1 for kw in keywords if kw in normalized)
+        + sum(2 for bg in bigrams if bg in normalized)
+        + compound_score
+    )
 
 
 _COMPARISON_TITLE_MARKERS: frozenset[str] = frozenset({
@@ -2389,7 +2440,6 @@ def _collect_domain(
         " ".join(_WORD_PATTERN.findall(t.lower())) for t in excluded_titles
     }
     _pat_kws = _topic_keywords(research_topic) if domain == "patent" else frozenset()
-    _pat_bgs = _topic_bigrams(research_topic) if domain == "patent" else frozenset()
 
     for query in queries:
         if len(accepted) >= maximum_sources:
@@ -2476,10 +2526,7 @@ def _collect_domain(
                 continue
             if domain == "patent" and _pat_kws:
                 _title_norm = _normalise_text(source.title)
-                _tscore = (
-                    sum(1 for kw in _pat_kws if kw in _title_norm)
-                    + sum(2 for bg in _pat_bgs if bg in _title_norm)
-                )
+                _tscore = _patent_title_score(source.title, research_topic)
                 if _tscore < 2:
                     audit.rejected_reasons.append(
                         f"patent title not relevant to topic"

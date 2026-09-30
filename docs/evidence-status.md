@@ -1,6 +1,6 @@
 # Current evidence status
 
-Current ledger, updated 2026-09-27. The initial documentation consolidation
+Current ledger, updated 2026-09-30. The initial documentation consolidation
 used public main `0fdaa76a107cf034c16c1ffa6e3ae623e4c63fe2` on 2026-09-05;
 its dated baseline is historical, not the identity of every later entry.
 This page separates implemented contracts from observed behaviour and claims
@@ -17,6 +17,15 @@ paid admission, checkpoint recovery and explicit terminal/accounting states.
 Qwen3.5 Plus, DeepSeek, Anthropic and OpenAI configuration paths exist. A
 provider being configurable is not proof of equivalent quality or cost.
 Supplementary Tool Calling remains **zero-call shadow mode**.
+
+The [RFID evidence-boundary repair](results-2026-09-30-rfid-evidence-boundaries.md)
+separates deterministic retrieval/provenance fixes from semantic mitigation.
+The saved-candidate replay removes two off-topic patents, preserves all 240
+frozen patents and 219 market records, and qualifies first-party attribution.
+Writer/Reviewer comparison instructions and scripted delivery controls do not
+establish native prevention of factual misinterpretation. The motivating normal
+run completed and exposed auxiliary costs in the browser; that is not source
+truth, a complete bill, or general semantic validation.
 
 A separate [saved-source production wrapper](operating-guide.md#optional-saved-source-locator)
 is default-off. Its gated page/API reuses the bounded one-selection locator,

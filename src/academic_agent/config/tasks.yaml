@@ -259,6 +259,22 @@ commercialization_report_task:
       state the evidence gap explicitly.
     - Preserve the distinction between observed facts, estimates, and analyst
       inferences.
+    - Cross-check quantitative comparisons against sources[].evidence_summary
+      in the evidence JSON, not only model-authored findings. Preserve the
+      measured subject, reference, units, and comparison conditions for each
+      quantity, including negative caveats and limits on what was measured.
+    - A physical difference between locations, objects, or operating conditions
+      is not sensor or calibration error. Describe calibration error only when
+      the source compares the instrument with a reference for the same measured
+      quantity under the stated conditions. Keep distinct comparisons separate
+      even when their units match; retain genuinely reported calibration error.
+    - An analyst inference label does not excuse a false premise. Do not derive
+      accuracy requirements, validation targets, or decision gates from a
+      misinterpreted comparison. If that comparison was the only basis for a
+      threshold, say "not established" and name the missing measurement; do
+      not rescue the false derivation by calling it a proposal. Separately
+      proposed analyst experiment targets remain allowed with the existing
+      proposal label and owner-confirmation requirement, not as evidence facts.
     - State medium-credibility claims as attributed or provisional, not as
       independently verified facts.
     - Market sizes and forecasts from market_report sources are estimates.
@@ -332,6 +348,22 @@ report_review_task:
     that contradicts the code-derived gate. Do not add facts,
     restructure sections, edit headings, alter citation syntax, or rewrite
     passages merely for style.
+
+    Cross-check the draft and model-authored findings against
+    sources[].evidence_summary, preserving each measured subject, reference,
+    units, comparison conditions, and negative caveats. A physical difference
+    is not calibration error; retain actual instrument-versus-reference error
+    only for the same measured quantity under the stated conditions. Do not
+    merge distinct comparisons merely because their units match.
+    A false premise remains wrong when labelled an analyst inference. Correct
+    both the misinterpreted comparison and every dependent accuracy claim,
+    validation target, recommendation, or decision gate in the draft using
+    exact bounded replacements. If the misinterpreted comparison was the only
+    basis for a threshold, replace that false derivation with "not established"
+    and the missing measurement, not another guessed value. Preserve separately
+    proposed analyst experiment targets with the existing proposal label and
+    owner-confirmation requirement. Preserve supported calibration claims and
+    caveats; do not add a blanket denial of error.
 
     Each "find" string must identify exactly one passage in the draft. Include
     enough surrounding text to make it unique, but keep both "find" and
