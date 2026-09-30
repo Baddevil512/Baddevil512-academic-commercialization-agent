@@ -27,6 +27,14 @@ establish native prevention of factual misinterpretation. The motivating normal
 run completed and exposed auxiliary costs in the browser; that is not source
 truth, a complete bill, or general semantic validation.
 
+A separate [Reviewer comparison protocol](prereg-2026-09-30-reviewer-comparison.md)
+has [frozen offline preparation](results-2026-09-30-reviewer-comparison-preparation.md)
+and a [pre-dispatch closeout](results-2026-09-30-reviewer-comparison-preflight.md).
+The one claimed batch stopped on selected-credential syntax, with zero request
+reservations, native calls or delivered reports. Blind semantic judgment is
+`not_run`, not a pass. Preparation stays outside main; this does not measure
+model quality or diagnose production credentials. The occupied batch is closed.
+
 A separate [saved-source production wrapper](operating-guide.md#optional-saved-source-locator)
 is default-off. Its gated page/API reuses the bounded one-selection locator,
 owner authorization, shared admission and durable receipt/accounting contracts.
