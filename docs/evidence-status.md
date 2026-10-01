@@ -44,6 +44,15 @@ unrun. This exposes a direct-experiment output-contract gap; it does not show
 semantic gain, candidate failure on unrun cases or production activation.
 No retry or post hoc clipping rescued the batch. Preparation remains outside main.
 
+The [offline common Reviewer output contract](../evals/reviewer_output_contract_v1/README.md)
+prepares an identical complete caller-supplied schema for both instruction arms.
+Explicit checks exercise real-model limits and full bytes at a local intercepted
+HTTP boundary. The function has no provider, live runner or production caller;
+this does not establish native delivery, compliance or semantic gain. Inspection
+of the current production factory/task configuration shows JSON Object mode
+without supplying the complete schema; that separate integration has not been
+changed by this preparation or validated by a new production HTTP observation.
+
 A separate [saved-source production wrapper](operating-guide.md#optional-saved-source-locator)
 is default-off. Its gated page/API reuses the bounded one-selection locator,
 owner authorization, shared admission and durable receipt/accounting contracts.

@@ -10,6 +10,8 @@ authorize rerunning a paid batch, moving its files or treating a failed gate as 
 
 - [2026-10-01 Reviewer comparison v2 closeout](results-2026-10-01-reviewer-comparison-v2.md): one response-backed request stopped on reason lengths exceeding an untransmitted field bound; no final reports or semantic comparison, no retry or production activation.
 
+- [2026-10-01 offline common Reviewer output contract](../evals/reviewer_output_contract_v1/README.md): explicit complete-schema addition and local intercepted-byte checks for newly prepared requests; no provider, new native batch or production integration.
+
 - [2026-09-30 Reviewer comparison v2 protocol](prereg-2026-09-30-reviewer-comparison-v2.md): dependent synthetic controls, credential-safe preflight, version-qualified extracted helpers and bounded sequential execution; immutable preparation retained outside main.
 
 - [2026-09-30 Reviewer comparison preflight closeout](results-2026-09-30-reviewer-comparison-preflight.md): one claimed batch stopped on selected-credential syntax before client creation; zero native calls/deliveries, semantic judgment not run, immutable preparation kept outside main.

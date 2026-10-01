@@ -608,6 +608,11 @@ Keep preparation outside main at `34228f3b54767d20dd3b22cc67e0bdcc23ad348d`.
 Any successor first needs an offline common-output-contract check; do not clip
 this response, relax the old bound or reopen its occupied output.
 
+The [offline common Reviewer contract](evals/reviewer_output_contract_v1/README.md)
+appends a caller-owned complete schema to newly prepared request bytes. Its
+explicit checks cover local HTTP delivery; it has no dispatcher or new batch.
+Keep production integration and provider obedience unestablished.
+
 Market score delivery must disclose non-assessment, not promote the legacy
 untyped spread flag to verified USD disagreement. Reassert fresh/restored JSON
 metadata and retain the legacy browser fallback without changing score values.
