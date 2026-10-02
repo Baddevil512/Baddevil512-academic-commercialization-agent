@@ -7,6 +7,8 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 from starlette import formparsers
+from starlette.requests import Request
+from starlette.responses import Response
 
 # Match the ordinary test bootstrap: main loads the operator's .env, while
 # runs snapshots quota defaults at import. Importing main first would make
@@ -196,11 +198,20 @@ def test_parser_capacity_rejects_before_receive_and_recovers(ingress, monkeypatc
 
 
 def test_parser_slot_is_released_before_paid_work(monkeypatch, tmp_path):
-    """Ingress time/capacity must not be extended across a paid model request."""
+    """Keep parser capacity independent of paid latency, without a 200ms precondition."""
     monkeypatch.setattr(papers, "PAPERS_ROOT", tmp_path / "papers")
     monkeypatch.setattr(access, "ACCESS_CODE", "offline-fixture")
     monkeypatch.setattr(upload_boundary, "MAX_UPLOAD_PARSERS", 1)
-    monkeypatch.setattr(upload_boundary, "UPLOAD_TOTAL_SECONDS", 0.2)
+    assert (upload_boundary.UPLOAD_TOTAL_SECONDS, upload_boundary.UPLOAD_IDLE_SECONDS) == (120, 30)
+    clock = [0.0]
+    monkeypatch.setattr(upload_boundary, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    provider = MagicMock(side_effect=AssertionError("No provider may be reached"))
+    monkeypatch.setattr(main, "extract_paper_contribution", provider)
+    # A finite observation produced 408 before paid entry with an expired
+    # ingress clock; it did NOT establish the historical failed POST's status.
+    # Keep real receive waits at production limits, not the former 200ms.
+    # Only this boundary's clock advances, at actual paid-mock entry. The
+    # separate ASGI test below explicitly exercises receive after that handoff.
 
     async def exercise():
         started, release = asyncio.Event(), asyncio.Event()
@@ -211,6 +222,7 @@ def test_parser_slot_is_released_before_paid_work(monkeypatch, tmp_path):
         )
 
         async def process(paper_id, *_args, **_kwargs):
+            clock[0] = upload_boundary.UPLOAD_TOTAL_SECONDS + 1
             started.set()
             await release.wait()
             papers.save_extraction(paper_id, contribution.model_dump())
@@ -218,12 +230,138 @@ def test_parser_slot_is_released_before_paid_work(monkeypatch, tmp_path):
 
         monkeypatch.setattr(main, "_process_uploaded_paper", process)
         first = asyncio.create_task(post(multipart(), {"X-Access-Code": "offline-fixture"}))
+        waiter = asyncio.create_task(started.wait())
+        tasks = {first, waiter}
+        primary_error = None
+
+        def task_state(task):
+            # Never include response bodies, exception strings or request data.
+            if not task.done():
+                return "pending"
+            if task.cancelled():
+                return "cancelled"
+            error = task.exception()
+            if error is not None:
+                return "exception_type=" + type(error).__name__
+            response = task.result()
+            code = response.headers.get("X-Error-Code")
+            safe_code = code if code in {None, "upload_timeout", "upload_capacity", "rate_limited"} else "other"
+            return f"status={response.status_code},code={safe_code}"
+
         try:
-            await asyncio.wait_for(started.wait(), 2)
-            assert (await post(multipart())).status_code == 401
+            done, _ = await asyncio.wait(tasks, timeout=2, return_when=asyncio.FIRST_COMPLETED)
+            assert waiter in done and first not in done, "paid entry not observed; first=" + task_state(first)
+            second = asyncio.create_task(post(multipart()))
+            tasks.add(second)
+            done, _ = await asyncio.wait({second}, timeout=2)
+            assert second in done and not second.cancelled(), "second=" + task_state(second)
+            assert second.exception() is None, "second=" + task_state(second)
+            assert second.result().status_code == 401, "second=" + task_state(second)
+        except BaseException as exc:  # Preserve the first failure across cleanup, including cancellation.
+            primary_error = exc
+            raise
         finally:
             release.set()
-        assert (await first).status_code == 200
+            waiter.cancel()
+            cleanup_errors = []
+            # Each drain phase has the original two-second watchdog. wait()
+            # does not silently extend it while waiting for cancellation.
+            try:
+                _, pending = await asyncio.wait(tasks, timeout=2)
+            except BaseException as exc:
+                cleanup_errors.append("drain_type=" + type(exc).__name__)
+                pending = {task for task in tasks if not task.done()}
+            for task in pending:
+                task.cancel()
+            if pending:
+                cleanup_errors.append("drain_required_cancellation")
+                try:
+                    _, pending = await asyncio.wait(pending, timeout=2)
+                except BaseException as exc:
+                    cleanup_errors.append("cancel_drain_type=" + type(exc).__name__)
+            if pending:
+                cleanup_errors.append("tasks_still_pending")
+            for task in tasks:
+                if task is not waiter and task.done():
+                    if task.cancelled() or task.exception() is not None:
+                        cleanup_errors.append(task_state(task))
+            if primary_error is not None:
+                primary_error.add_note("first POST after drain: " + task_state(first))
+            if cleanup_errors:
+                detail = "upload cleanup: " + ";".join(cleanup_errors)
+                if primary_error is not None:
+                    primary_error.add_note(detail)
+                else:
+                    raise AssertionError(detail)
+        assert first.result().status_code == 200, "first=" + task_state(first)
         assert list(papers.PAPERS_ROOT.glob("*/paper.pdf")) == []
 
     asyncio.run(exercise())
+    provider.assert_not_called()
+
+
+@pytest.mark.parametrize("released", [True, False], ids=["released", "unreleased"])
+def test_upload_deadline_after_parser_handoff(ingress, monkeypatch, released):
+    """Same-scope late receive bypasses ingress time only after genuine release."""
+    assert (upload_boundary.UPLOAD_TOTAL_SECONDS, upload_boundary.UPLOAD_IDLE_SECONDS) == (120, 30)
+    monkeypatch.setattr(upload_boundary, "MAX_UPLOAD_PARSERS", 1)
+    clock, waits, received, sent = [0.0], [], [], []
+    real_wait_for = asyncio.wait_for
+
+    async def wait_receive(awaitable, timeout):
+        waits.append(timeout)
+        return await real_wait_for(awaitable, timeout)  # Observe, never replace the production budget.
+
+    monkeypatch.setattr(upload_boundary, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    monkeypatch.setattr(upload_boundary, "asyncio", SimpleNamespace(wait_for=wait_receive))
+    scope = {"type": "http", "method": "POST", "path": "/api/papers",
+             "headers": [(b"content-type", b"multipart/form-data; boundary=audit")]}
+    disconnect = {"type": "http.disconnect"}
+    messages = [{"type": "http.request", "body": multipart(), "more_body": False}, disconnect]
+    late_message = None
+
+    async def receive():
+        message = messages[len(received)]
+        received.append(message)
+        return message
+
+    async def send(message):
+        sent.append(message)
+
+    async def parsed_app(actual_scope, bounded_receive, bounded_send):
+        nonlocal late_message
+        assert actual_scope is scope
+        # Parse actual multipart bytes and close the actual spooled files. A
+        # direct ASGI message source avoids httpx's response/disconnect wait
+        # dependency; this is a boundary test, not network delivery evidence.
+        async with Request(actual_scope, bounded_receive).form() as form:
+            assert form["file"].size == 64
+            assert ingress and all(not file.closed for file in ingress)
+            assert waits == [30]
+            if released:
+                upload_boundary.release_upload_slot(actual_scope)
+            clock[0] = upload_boundary.UPLOAD_TOTAL_SECONDS + 1
+            try:
+                late_message = await bounded_receive()
+            except formparsers.MultiPartException:
+                # The downstream parser's generic response is NOT our expected
+                # 408: the real bounded_send must perform that conversion.
+                response = Response(status_code=400)
+            else:
+                response = Response(status_code=200)
+        await response(actual_scope, bounded_receive, bounded_send)
+
+    async def exercise():
+        boundary = upload_boundary.PaperUploadBoundary(parsed_app)
+        await asyncio.wait_for(boundary(scope, receive, send), 2)
+
+    asyncio.run(exercise())
+    starts = [message for message in sent if message["type"] == "http.response.start"]
+    assert len(starts) == 1
+    status = starts[0]["status"]
+    code = dict(starts[0]["headers"]).get(b"x-error-code")
+    assert (status, code) == ((200, None) if released else (408, b"upload_timeout"))
+    assert late_message is (disconnect if released else None)
+    assert len(received) == (2 if released else 1)
+    assert waits == [30], "Crossing the deadline must not introduce another timed wait"
+    assert ingress and all(file.closed for file in ingress)
