@@ -563,3 +563,87 @@ def test_run_cell_persists_the_selected_report_at_the_disk_boundary(
         assert meta["status"] == "success"
         assert delivered_path.read_text(encoding="utf-8") == "delivered report"
         assert meta["report_metrics"]["contract_status"] == "fail"
+
+
+def test_parse_args_max_execution_time() -> None:
+    """CLI --max-execution-time must parse correctly and reject non-positive values."""
+    args = ablation._parse_args(["--pilot", "--execute", "--max-execution-time", "120"])
+    assert args.max_execution_time == 120
+
+    with pytest.raises(SystemExit):
+        ablation._parse_args(["--pilot", "--execute", "--max-execution-time", "-5"])
+
+
+def test_max_execution_time_env_and_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Environment variable ABLATION_MAX_EXECUTION_TIME and explicit override work as expected."""
+    monkeypatch.setenv("ABLATION_MAX_EXECUTION_TIME", "300")
+    assert ablation._max_execution_time() == 300
+    assert ablation._max_execution_time(60) == 60
+
+    monkeypatch.setenv("ABLATION_MAX_EXECUTION_TIME", "invalid")
+    with pytest.raises(ValueError, match="ABLATION_MAX_EXECUTION_TIME"):
+        ablation._max_execution_time()
+
+
+def test_build_variant_crew_applies_max_execution_time(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Agent instances built by build_variant_crew must receive max_execution_time when configured."""
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    collection = _collection()
+
+    crew_mono, _ = ablation.build_variant_crew("monolith", collection, max_execution_time=45)
+    assert crew_mono.agents[0].max_execution_time == 45
+
+    crew_full, _ = ablation.build_variant_crew("full", collection, max_execution_time=90)
+    for agent in crew_full.agents:
+        assert getattr(agent, "max_execution_time", None) == 90
+
+
+def test_run_cell_execution_deadline_timeout_and_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stalled or slow cell execution must trigger execution deadline, set error_timeout, and clean up."""
+    collection = _collection()
+
+    class StalledCrew:
+        tasks: list[object] = []
+        agents: list[object] = []
+
+        def kickoff(self, *, inputs):  # noqa: ANN001
+            import time
+
+            time.sleep(2.0)  # Simulate slow execution exceeding deadline
+            return SimpleNamespace(tasks_output=[])
+
+    monkeypatch.setattr(
+        ablation,
+        "_fixture",
+        lambda *args: (collection, {"sha256_16": "fixture-digest"}),
+    )
+    monkeypatch.setattr(ablation.benchmark_fixtures, "age_days", lambda num: 1.0)
+    monkeypatch.setattr(
+        ablation,
+        "build_variant_crew",
+        lambda *args, **kwargs: (StalledCrew(), "monolith_report_task"),
+    )
+
+    output_root = Path(__file__).parents[1] / "outputs"
+    with tempfile.TemporaryDirectory(prefix="test-ablation-timeout-", dir=output_root) as raw:
+        root = Path(raw)
+        cell = _cell("monolith")
+        meta = ablation.run_cell(
+            cell,
+            experiment_id="test_timeout_experiment",
+            experiment_root=root,
+            commit_sha="test_commit",
+            max_execution_time=1,  # 1 second deadline against 2s delay
+        )
+
+        cell_dir = ablation._cell_directory(root, cell)
+        meta_file = cell_dir / "meta.json"
+        error_log = cell_dir / "error.log"
+
+        assert meta["status"] == "error_timeout"
+        assert "deadline exceeded" in meta["error"].lower()
+        assert meta_file.exists()
+        assert error_log.exists()
+        assert "TimeoutError" in error_log.read_text(encoding="utf-8")
+        assert meta["elapsed_seconds"] >= 1.0
+

@@ -308,9 +308,33 @@ def _max_rpm() -> int:
         raise ValueError(f"MAX_RPM environment variable must be an integer, got {raw!r}") from None
 
 
+def _max_execution_time(override: int | float | None = None) -> int | None:
+    """Resolve configured cell execution deadline in seconds.
+
+    Checks explicit CLI override, falling back to ABLATION_MAX_EXECUTION_TIME.
+    Returns None if unconfigured or <= 0.
+    """
+
+    if override is not None:
+        if override <= 0:
+            return None
+        return int(override)
+    raw = os.getenv("ABLATION_MAX_EXECUTION_TIME", "").strip()
+    if not raw:
+        return None
+    try:
+        val = int(raw)
+        return val if val > 0 else None
+    except ValueError:
+        raise ValueError(
+            f"ABLATION_MAX_EXECUTION_TIME environment variable must be an integer, got {raw!r}"
+        ) from None
+
+
 def build_variant_crew(
     variant: str,
     collection: Any,
+    max_execution_time: int | float | None = None,
 ) -> tuple[Any, str]:
     """Build one treatment while leaving the production control untouched."""
 
@@ -318,24 +342,29 @@ def build_variant_crew(
     from academic_agent.llm_config import create_llm
     from crewai import Agent, Crew, Process, Task
 
+    exec_time = _max_execution_time(max_execution_time)
+
     if variant == "monolith":
-        agent = Agent(
-            role="Academic Commercialization Generalist",
-            goal=(
+        agent_kwargs: dict[str, Any] = {
+            "role": "Academic Commercialization Generalist",
+            "goal": (
                 "Produce an evidence-bounded investment-facing commercialization "
                 "assessment directly from validated academic, patent, and market sources."
             ),
-            backstory=(
+            "backstory": (
                 "You combine technology-transfer, patent-landscape, and market-analysis "
                 "skills, but you have no external tools and may use only the supplied registry."
             ),
             # Match the production report writer's free-text LLM construction
             # exactly. Forcing temperature zero here would confound topology
             # with a model-setting change even though it looks more deterministic.
-            llm=create_llm(),
-            verbose=True,
-            allow_delegation=False,
-        )
+            "llm": create_llm(),
+            "verbose": True,
+            "allow_delegation": False,
+        }
+        if exec_time is not None:
+            agent_kwargs["max_execution_time"] = exec_time
+        agent = Agent(**agent_kwargs)
         task = Task(
             name="monolith_report_task",
             description=_MONOLITH_DESCRIPTION,
@@ -357,6 +386,11 @@ def build_variant_crew(
         )
 
     production = AcademicAgent(collection).crew()
+    if exec_time is not None:
+        for ag in getattr(production, "agents", []):
+            if hasattr(ag, "max_execution_time"):
+                setattr(ag, "max_execution_time", exec_time)
+
     if variant == "full":
         return production, "commercialization_report_task"
     if variant == "specialists_writer":
@@ -532,6 +566,7 @@ def run_cell(
     experiment_id: str,
     experiment_root: Path,
     commit_sha: str,
+    max_execution_time: int | float | None = None,
 ) -> dict[str, Any]:
     """Run and persist one paid cell; failures retain usage and diagnostics."""
 
@@ -569,10 +604,31 @@ def run_cell(
     recorder = GuardrailRecorder()
     report_task_name = ""
     start = time.perf_counter()
+    exec_time = _max_execution_time(max_execution_time)
     try:
-        crew_obj, report_task_name = build_variant_crew(cell.variant, collection)
+        if exec_time is not None:
+            crew_obj, report_task_name = build_variant_crew(
+                cell.variant, collection, max_execution_time=exec_time
+            )
+        else:
+            crew_obj, report_task_name = build_variant_crew(cell.variant, collection)
         recorder.instrument(crew_obj.tasks)
-        result = crew_obj.kickoff(inputs=collection.crew_inputs())
+
+        if exec_time is not None and exec_time > 0:
+            import concurrent.futures
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(crew_obj.kickoff, inputs=collection.crew_inputs())
+                try:
+                    result = future.result(timeout=float(exec_time))
+                except concurrent.futures.TimeoutError as exc:
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    raise TimeoutError(
+                        f"Ablation cell execution deadline exceeded ({exec_time}s)"
+                    ) from exc
+        else:
+            result = crew_obj.kickoff(inputs=collection.crew_inputs())
+
         task_outputs = list(getattr(result, "tasks_output", None) or [])
         draft, delivered = select_report_outputs(cell.variant, task_outputs)
         if not delivered:
@@ -608,7 +664,10 @@ def run_cell(
         )
         meta["status"] = "success"
     except Exception as exc:  # noqa: BLE001 - one failed cell must not erase the batch
-        meta["status"] = "error_crew"
+        if isinstance(exc, TimeoutError) or "deadline exceeded" in str(exc).lower():
+            meta["status"] = "error_timeout"
+        else:
+            meta["status"] = "error_crew"
         meta["error"] = f"{type(exc).__name__}: {exc}"[:2_000]
         (cell_dir / "error.log").write_text(traceback.format_exc(), encoding="utf-8")
     finally:
@@ -655,6 +714,13 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "cross it, so this is a stop rule rather than a hard provider cap"
         ),
     )
+    parser.add_argument(
+        "--max-execution-time",
+        type=int,
+        default=None,
+        metavar="SECONDS",
+        help="overall cell execution deadline in seconds (overrides ABLATION_MAX_EXECUTION_TIME)",
+    )
     args = parser.parse_args(argv)
     if args.repeat is not None and args.repeat < 1:
         parser.error("--repeat must be at least 1")
@@ -662,6 +728,8 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error("--pause-seconds must not be negative")
     if args.stop_after_usd is not None and args.stop_after_usd <= 0:
         parser.error("--stop-after-usd must be positive")
+    if args.max_execution_time is not None and args.max_execution_time <= 0:
+        parser.error("--max-execution-time must be positive")
     if (args.pilot or args.full) and args.only:
         parser.error("--only cannot be combined with --pilot or --full")
     if args.execute and not (args.pilot or args.full or args.only):
@@ -752,6 +820,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 experiment_id=experiment_id,
                 experiment_root=experiment_root,
                 commit_sha=commit_sha,
+                max_execution_time=args.max_execution_time,
             )
         usage = meta.get("usage") or {}
         cost = usage.get("cost_usd")
