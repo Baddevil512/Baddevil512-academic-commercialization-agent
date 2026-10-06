@@ -12,6 +12,7 @@ import json
 import os
 import re
 import subprocess
+import threading
 import time
 import traceback
 from dataclasses import dataclass
@@ -560,6 +561,75 @@ def _reusable_cell_meta(
     return None
 
 
+def _execute_cell_with_deadline(
+    kickoff_fn: Callable[[], Any],
+    *,
+    exec_time: float | int,
+    cancel_event: threading.Event | None = None,
+    cancel_callback: Callable[[], None] | None = None,
+) -> tuple[Any, bool]:
+    """Execute ``kickoff_fn`` within ``exec_time`` seconds with deterministic cleanup.
+
+    Returns a tuple ``(result, worker_stopped)``.
+
+    If execution exceeds ``exec_time``:
+    1. Actively signals ``cancel_event`` (if provided) and invokes ``cancel_callback()``
+       (if provided) to trigger cooperative resource/task cancellation.
+    2. Avoids context-managed ``ThreadPoolExecutor`` context blocks whose ``__exit__``
+       blocks on unfinished worker threads.
+    3. Joins the worker thread with a short bounded timeout (0.2s) and explicitly
+       verifies worker shutdown (``worker_stopped = not worker.is_alive()``).
+    4. Raises ``TimeoutError`` containing deadline and worker status diagnostics.
+
+    Guarantees & Boundaries:
+    - **Local Execution Termination & Resource Cleanup**: Guarantees bounded local
+      wait time (elapsed time strictly upper-bounded: ``elapsed < deadline + margin``)
+      and local task resource cleanup upon deadline expiration. The caller returns
+      promptly, cell status is recorded as ``error_timeout``, and local worker state
+      is verified.
+    - **Remote Provider Cancellation & Token Consumption**: Once an upstream HTTP
+      request has been dispatched to a remote LLM provider (e.g. OpenAI, DeepSeek,
+      Anthropic, Ollama), server-side generation cancellation and billing/token
+      consumption depend on the remote provider's API behavior (whether socket
+      disconnects or cancellation signals are honored by the remote endpoint) and
+      are not guaranteed by local execution termination alone.
+    """
+
+    timeout_val = float(exec_time)
+    evt = cancel_event or threading.Event()
+    container: dict[str, Any] = {"result": None, "exception": None}
+
+    def _worker() -> None:
+        try:
+            container["result"] = kickoff_fn()
+        except Exception as exc:
+            container["exception"] = exc
+
+    worker_thread = threading.Thread(target=_worker, daemon=True)
+    worker_thread.start()
+    worker_thread.join(timeout=timeout_val)
+
+    if worker_thread.is_alive():
+        evt.set()
+        if cancel_callback is not None:
+            try:
+                cancel_callback()
+            except Exception:  # noqa: BLE001
+                pass
+
+        worker_thread.join(timeout=0.2)
+        worker_stopped = not worker_thread.is_alive()
+        raise TimeoutError(
+            f"Ablation cell execution deadline exceeded ({timeout_val}s); "
+            f"worker_stopped={worker_stopped}"
+        )
+
+    if container["exception"] is not None:
+        raise container["exception"]
+
+    return container["result"], True
+
+
 def run_cell(
     cell: ScheduleCell,
     *,
@@ -568,7 +638,18 @@ def run_cell(
     commit_sha: str,
     max_execution_time: int | float | None = None,
 ) -> dict[str, Any]:
-    """Run and persist one paid cell; failures retain usage and diagnostics."""
+    """Run and persist one paid cell; failures retain usage and diagnostics.
+
+    Execution Deadline Guarantees:
+    - Local execution termination & resource cleanup: When max_execution_time is set,
+      bounded local wait time (elapsed_seconds < deadline + margin) and local worker
+      cleanup are guaranteed. If the deadline fires, the cell aborts locally and
+      records status="error_timeout".
+    - Remote provider cancellation & token consumption: Once an HTTP request is
+      dispatched to an external LLM provider, server-side generation cancellation
+      and token/cost consumption depend on provider API behavior and are not
+      guaranteed by local termination alone.
+    """
 
     collection, fixture_entry = _fixture(cell.num, cell.topic)
     cell_dir = _cell_directory(experiment_root, cell)
@@ -614,18 +695,22 @@ def run_cell(
             crew_obj, report_task_name = build_variant_crew(cell.variant, collection)
         recorder.instrument(crew_obj.tasks)
 
-        if exec_time is not None and exec_time > 0:
-            import concurrent.futures
+        cancel_event = getattr(crew_obj, "cancel_event", None)
+        if not isinstance(cancel_event, threading.Event):
+            cancel_event = threading.Event()
+            setattr(crew_obj, "cancel_event", cancel_event)
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(crew_obj.kickoff, inputs=collection.crew_inputs())
-                try:
-                    result = future.result(timeout=float(exec_time))
-                except concurrent.futures.TimeoutError as exc:
-                    executor.shutdown(wait=False, cancel_futures=True)
-                    raise TimeoutError(
-                        f"Ablation cell execution deadline exceeded ({exec_time}s)"
-                    ) from exc
+        cancel_cb = getattr(crew_obj, "cancel", None)
+        if not callable(cancel_cb):
+            cancel_cb = None
+
+        if exec_time is not None and exec_time > 0:
+            result, _worker_stopped = _execute_cell_with_deadline(
+                lambda: crew_obj.kickoff(inputs=collection.crew_inputs()),
+                exec_time=exec_time,
+                cancel_event=cancel_event,
+                cancel_callback=cancel_cb,
+            )
         else:
             result = crew_obj.kickoff(inputs=collection.crew_inputs())
 
@@ -719,7 +804,11 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=int,
         default=None,
         metavar="SECONDS",
-        help="overall cell execution deadline in seconds (overrides ABLATION_MAX_EXECUTION_TIME)",
+        help=(
+            "overall cell execution deadline in seconds (overrides ABLATION_MAX_EXECUTION_TIME). "
+            "Guarantees bounded local execution wait time and local worker cleanup; "
+            "remote LLM provider token/cost consumption depends on provider API behavior."
+        ),
     )
     args = parser.parse_args(argv)
     if args.repeat is not None and args.repeat < 1:

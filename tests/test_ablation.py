@@ -599,18 +599,28 @@ def test_build_variant_crew_applies_max_execution_time(monkeypatch: pytest.Monke
 
 
 def test_run_cell_execution_deadline_timeout_and_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Stalled or slow cell execution must trigger execution deadline, set error_timeout, and clean up."""
+    """Stalled cell execution must trigger deadline, return within upper bound, and verify worker cleanup."""
     collection = _collection()
 
     class StalledCrew:
         tasks: list[object] = []
         agents: list[object] = []
 
-        def kickoff(self, *, inputs):  # noqa: ANN001
-            import time
+        def __init__(self) -> None:
+            import threading
+            self.cancel_event = threading.Event()
+            self.was_cancelled = False
 
-            time.sleep(2.0)  # Simulate slow execution exceeding deadline
+        def cancel(self) -> None:
+            self.was_cancelled = True
+            self.cancel_event.set()
+
+        def kickoff(self, *, inputs: object) -> SimpleNamespace:
+            # Cooperatively wait for up to 2.0 seconds unless cancel_event fires
+            self.cancel_event.wait(timeout=2.0)
             return SimpleNamespace(tasks_output=[])
+
+    stalled_crew = StalledCrew()
 
     monkeypatch.setattr(
         ablation,
@@ -621,7 +631,7 @@ def test_run_cell_execution_deadline_timeout_and_cleanup(monkeypatch: pytest.Mon
     monkeypatch.setattr(
         ablation,
         "build_variant_crew",
-        lambda *args, **kwargs: (StalledCrew(), "monolith_report_task"),
+        lambda *args, **kwargs: (stalled_crew, "monolith_report_task"),
     )
 
     output_root = Path(__file__).parents[1] / "outputs"
@@ -633,7 +643,7 @@ def test_run_cell_execution_deadline_timeout_and_cleanup(monkeypatch: pytest.Mon
             experiment_id="test_timeout_experiment",
             experiment_root=root,
             commit_sha="test_commit",
-            max_execution_time=1,  # 1 second deadline against 2s delay
+            max_execution_time=1,  # 1 second deadline against 2s workload
         )
 
         cell_dir = ablation._cell_directory(root, cell)
@@ -645,5 +655,42 @@ def test_run_cell_execution_deadline_timeout_and_cleanup(monkeypatch: pytest.Mon
         assert meta_file.exists()
         assert error_log.exists()
         assert "TimeoutError" in error_log.read_text(encoding="utf-8")
-        assert meta["elapsed_seconds"] >= 1.0
+        # Strict upper-bound timing check: must return within 1.5s (not block for 2.0s+)
+        assert 1.0 <= meta["elapsed_seconds"] < 1.5
+        # Worker stop verification: cleanup/cancel event was triggered
+        assert stalled_crew.was_cancelled or stalled_crew.cancel_event.is_set()
+
+
+def test_ablation_deadline_upper_bound_and_worker_stopped() -> None:
+    """Directly verify _execute_cell_with_deadline upper bound timing and worker stopped status."""
+    import threading
+    import time
+
+    cancel_evt = threading.Event()
+    was_cancelled = False
+
+    def cooperative_worker() -> str:
+        cancel_evt.wait(timeout=2.0)
+        return "done"
+
+    def cancel_callback() -> None:
+        nonlocal was_cancelled
+        was_cancelled = True
+        cancel_evt.set()
+
+    t0 = time.perf_counter()
+    with pytest.raises(TimeoutError) as exc_info:
+        ablation._execute_cell_with_deadline(
+            cooperative_worker,
+            exec_time=1.0,
+            cancel_event=cancel_evt,
+            cancel_callback=cancel_callback,
+        )
+
+    elapsed = time.perf_counter() - t0
+    # Elapsed time must be bounded: strictly less than 1.5s for 1.0s deadline
+    assert 1.0 <= elapsed < 1.5
+    assert "worker_stopped=True" in str(exc_info.value)
+    assert was_cancelled
+    assert cancel_evt.is_set()
 
