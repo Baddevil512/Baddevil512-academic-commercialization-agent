@@ -7,6 +7,7 @@ typo must not turn into ninety paid model runs.
 
 
 import argparse
+import ctypes
 import hashlib
 import json
 import os
@@ -561,6 +562,19 @@ def _reusable_cell_meta(
     return None
 
 
+def _interrupt_worker_thread(ident: int | None) -> None:
+    """Inject TimeoutError asynchronously into worker thread bytecode evaluation."""
+    if ident is None:
+        return
+    res = ctypes.pythonapi.PyThreadState_SetAsyncExc(
+        ctypes.c_ulong(ident),
+        ctypes.py_object(TimeoutError),
+    )
+    if res > 1:
+        # If set failed or affected multiple threads, clear exception immediately
+        ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(ident), None)
+
+
 def _execute_cell_with_deadline(
     kickoff_fn: Callable[[], Any],
     *,
@@ -573,13 +587,16 @@ def _execute_cell_with_deadline(
     Returns a tuple ``(result, worker_stopped)``.
 
     If execution exceeds ``exec_time``:
-    1. Actively signals ``cancel_event`` (if provided) and invokes ``cancel_callback()``
+    1. Stage 1: Actively signals ``cancel_event`` (if provided) and invokes ``cancel_callback()``
        (if provided) to trigger cooperative resource/task cancellation.
-    2. Avoids context-managed ``ThreadPoolExecutor`` context blocks whose ``__exit__``
+    2. Stage 2: If the worker thread remains alive, asynchronously injects ``TimeoutError``
+       into the worker thread's bytecode evaluation loop via ``PyThreadState_SetAsyncExc``
+       to interrupt uncooperative loops or synchronous functions.
+    3. Avoids context-managed ``ThreadPoolExecutor`` context blocks whose ``__exit__``
        blocks on unfinished worker threads.
-    3. Joins the worker thread with a short bounded timeout (0.2s) and explicitly
+    4. Joins the worker thread with a short bounded timeout (0.2s) and explicitly
        verifies worker shutdown (``worker_stopped = not worker.is_alive()``).
-    4. Raises ``TimeoutError`` containing deadline and worker status diagnostics.
+    5. Raises ``TimeoutError`` containing deadline and worker status diagnostics.
 
     Guarantees & Boundaries:
     - **Local Execution Termination & Resource Cleanup**: Guarantees bounded local
@@ -610,6 +627,7 @@ def _execute_cell_with_deadline(
     worker_thread.join(timeout=timeout_val)
 
     if worker_thread.is_alive():
+        # Stage 1: Cooperative signal & resource cleanup callback
         evt.set()
         if cancel_callback is not None:
             try:
@@ -617,7 +635,13 @@ def _execute_cell_with_deadline(
             except Exception:  # noqa: BLE001
                 pass
 
-        worker_thread.join(timeout=0.2)
+        worker_thread.join(timeout=0.1)
+
+        # Stage 2: Asynchronous bytecode thread interruption if still running
+        if worker_thread.is_alive() and worker_thread.ident is not None:
+            _interrupt_worker_thread(worker_thread.ident)
+            worker_thread.join(timeout=0.2)
+
         worker_stopped = not worker_thread.is_alive()
         raise TimeoutError(
             f"Ablation cell execution deadline exceeded ({timeout_val}s); "

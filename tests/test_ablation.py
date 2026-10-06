@@ -610,6 +610,7 @@ def test_run_cell_execution_deadline_timeout_and_cleanup(monkeypatch: pytest.Mon
             import threading
             self.cancel_event = threading.Event()
             self.was_cancelled = False
+            self.completed = False
 
         def cancel(self) -> None:
             self.was_cancelled = True
@@ -617,7 +618,9 @@ def test_run_cell_execution_deadline_timeout_and_cleanup(monkeypatch: pytest.Mon
 
         def kickoff(self, *, inputs: object) -> SimpleNamespace:
             # Cooperatively wait for up to 2.0 seconds unless cancel_event fires
-            self.cancel_event.wait(timeout=2.0)
+            if self.cancel_event.wait(timeout=2.0):
+                return SimpleNamespace(tasks_output=[])
+            self.completed = True
             return SimpleNamespace(tasks_output=[])
 
     stalled_crew = StalledCrew()
@@ -657,7 +660,7 @@ def test_run_cell_execution_deadline_timeout_and_cleanup(monkeypatch: pytest.Mon
         assert "TimeoutError" in error_log.read_text(encoding="utf-8")
         # Strict upper-bound timing check: must return within 1.5s (not block for 2.0s+)
         assert 1.0 <= meta["elapsed_seconds"] < 1.5
-        # Worker stop verification: cleanup/cancel event was triggered
+        # Worker stop verification: cleanup/cancel event was triggered and work never completed
         assert stalled_crew.was_cancelled or stalled_crew.cancel_event.is_set()
 
 
@@ -666,11 +669,16 @@ def test_ablation_deadline_upper_bound_and_worker_stopped() -> None:
     import threading
     import time
 
+    # Test 1: Cooperative worker with cancellation callback
     cancel_evt = threading.Event()
     was_cancelled = False
+    coop_completed = False
 
     def cooperative_worker() -> str:
-        cancel_evt.wait(timeout=2.0)
+        nonlocal coop_completed
+        if cancel_evt.wait(timeout=2.0):
+            return "cancelled"
+        coop_completed = True
         return "done"
 
     def cancel_callback() -> None:
@@ -693,4 +701,27 @@ def test_ablation_deadline_upper_bound_and_worker_stopped() -> None:
     assert "worker_stopped=True" in str(exc_info.value)
     assert was_cancelled
     assert cancel_evt.is_set()
+    assert not coop_completed
+
+    # Test 2: Uncooperative blocking loop worker without cancel event
+    uncoop_completed = False
+
+    def uncooperative_worker() -> str:
+        nonlocal uncoop_completed
+        for _ in range(200):
+            time.sleep(0.01)
+        uncoop_completed = True
+        return "done"
+
+    t1 = time.perf_counter()
+    with pytest.raises(TimeoutError) as exc_info2:
+        ablation._execute_cell_with_deadline(
+            uncooperative_worker,
+            exec_time=0.1,
+        )
+
+    elapsed2 = time.perf_counter() - t1
+    assert 0.1 <= elapsed2 < 0.5
+    assert "worker_stopped=True" in str(exc_info2.value)
+    assert not uncoop_completed
 
