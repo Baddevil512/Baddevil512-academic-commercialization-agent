@@ -391,7 +391,7 @@ def build_variant_crew(
     if exec_time is not None:
         for ag in getattr(production, "agents", []):
             if hasattr(ag, "max_execution_time"):
-                setattr(ag, "max_execution_time", exec_time)
+                ag.max_execution_time = exec_time
 
     if variant == "full":
         return production, "commercialization_report_task"
@@ -722,7 +722,7 @@ def run_cell(
         cancel_event = getattr(crew_obj, "cancel_event", None)
         if not isinstance(cancel_event, threading.Event):
             cancel_event = threading.Event()
-            setattr(crew_obj, "cancel_event", cancel_event)
+            crew_obj.cancel_event = cancel_event
 
         cancel_cb = getattr(crew_obj, "cancel", None)
         if not callable(cancel_cb):
