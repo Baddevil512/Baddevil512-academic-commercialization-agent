@@ -587,29 +587,24 @@ def _execute_cell_with_deadline(
     Returns a tuple ``(result, worker_stopped)``.
 
     If execution exceeds ``exec_time``:
-    1. Stage 1: Actively signals ``cancel_event`` (if provided) and invokes ``cancel_callback()``
-       (if provided) to trigger cooperative resource/task cancellation.
-    2. Stage 2: If the worker thread remains alive, asynchronously injects ``TimeoutError``
-       into the worker thread's bytecode evaluation loop via ``PyThreadState_SetAsyncExc``
-       to interrupt uncooperative loops or synchronous functions.
-    3. Avoids context-managed ``ThreadPoolExecutor`` context blocks whose ``__exit__``
-       blocks on unfinished worker threads.
-    4. Joins the worker thread with a short bounded timeout (0.2s) and explicitly
-       verifies worker shutdown (``worker_stopped = not worker.is_alive()``).
-    5. Raises ``TimeoutError`` containing deadline and worker status diagnostics.
+    1. Stage 1 (Cooperative): Actively signals ``cancel_event`` (if provided). If ``cancel_callback``
+       is provided, invokes it within a bounded thread (max 0.15s) so a stuck callback cannot block
+       the caller.
+    2. Stage 2 (Preemptive Interruption): If worker thread remains alive, asynchronously injects
+       ``TimeoutError`` into the worker thread's bytecode evaluation loop via ``PyThreadState_SetAsyncExc``.
+    3. Verification: Joins the worker thread with a short bounded timeout (0.1s) and checks
+       ``worker_stopped = not worker_thread.is_alive()``.
+    4. Diagnostics: Raises ``TimeoutError`` containing deadline and ``worker_stopped`` status.
+       If ``worker_stopped`` is False, caller records status ``error_timeout_unconfirmed`` and halts batch.
 
     Guarantees & Boundaries:
-    - **Local Execution Termination & Resource Cleanup**: Guarantees bounded local
-      wait time (elapsed time strictly upper-bounded: ``elapsed < deadline + margin``)
-      and local task resource cleanup upon deadline expiration. The caller returns
-      promptly, cell status is recorded as ``error_timeout``, and local worker state
-      is verified.
-    - **Remote Provider Cancellation & Token Consumption**: Once an upstream HTTP
-      request has been dispatched to a remote LLM provider (e.g. OpenAI, DeepSeek,
-      Anthropic, Ollama), server-side generation cancellation and billing/token
-      consumption depend on the remote provider's API behavior (whether socket
-      disconnects or cancellation signals are honored by the remote endpoint) and
-      are not guaranteed by local execution termination alone.
+    - **Local Execution Termination & Resource Cleanup**: Guarantees bounded local wait time
+      and local task resource cleanup upon deadline expiration. Unconfirmed exits set
+      ``status="error_timeout_unconfirmed"`` and stop the batch run to prevent concurrent paid runs.
+    - **Remote Provider Cancellation & Token Consumption**: Once an upstream HTTP request has been
+      dispatched to a remote LLM provider, server-side generation cancellation and billing/token
+      consumption depend on the remote provider's API behavior and are not guaranteed by local execution
+      termination alone.
     """
 
     timeout_val = float(exec_time)
@@ -627,25 +622,28 @@ def _execute_cell_with_deadline(
     worker_thread.join(timeout=timeout_val)
 
     if worker_thread.is_alive():
-        # Stage 1: Cooperative signal & resource cleanup callback
+        # Stage 1: Cooperative signal & bounded cancellation callback invocation
         evt.set()
         if cancel_callback is not None:
-            try:
-                cancel_callback()
-            except Exception:  # noqa: BLE001
-                pass
+            cb_thread = threading.Thread(target=cancel_callback, daemon=True)
+            cb_thread.start()
+            cb_thread.join(timeout=0.15)
 
         worker_thread.join(timeout=0.1)
 
         # Stage 2: Asynchronous bytecode thread interruption if still running
         if worker_thread.is_alive() and worker_thread.ident is not None:
             _interrupt_worker_thread(worker_thread.ident)
-            worker_thread.join(timeout=0.2)
+            worker_thread.join(timeout=0.1)
 
         worker_stopped = not worker_thread.is_alive()
+        status_flag = (
+            "worker_stopped=True"
+            if worker_stopped
+            else "worker_stopped=False [UNCONFIRMED_EXIT]"
+        )
         raise TimeoutError(
-            f"Ablation cell execution deadline exceeded ({timeout_val}s); "
-            f"worker_stopped={worker_stopped}"
+            f"Ablation cell execution deadline exceeded ({timeout_val}s); {status_flag}"
         )
 
     if container["exception"] is not None:
@@ -773,8 +771,12 @@ def run_cell(
         )
         meta["status"] = "success"
     except Exception as exc:  # noqa: BLE001 - one failed cell must not erase the batch
-        if isinstance(exc, TimeoutError) or "deadline exceeded" in str(exc).lower():
-            meta["status"] = "error_timeout"
+        exc_str = str(exc)
+        if isinstance(exc, TimeoutError) or "deadline exceeded" in exc_str.lower():
+            if "worker_stopped=false" in exc_str.lower() or "unconfirmed_exit" in exc_str.lower():
+                meta["status"] = "error_timeout_unconfirmed"
+            else:
+                meta["status"] = "error_timeout"
         else:
             meta["status"] = "error_crew"
         meta["error"] = f"{type(exc).__name__}: {exc}"[:2_000]
@@ -945,6 +947,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"{meta['elapsed_seconds']}s  observed cost=${cumulative_cost:.4f}",
             flush=True,
         )
+
+        if meta.get("status") == "error_timeout_unconfirmed":
+            print(
+                "Stopping: worker exit was unconfirmed, halting paid study to prevent concurrent runs.",
+                flush=True,
+            )
+            break
 
         if args.stop_after_usd is not None:
             if complete is not True:

@@ -725,3 +725,61 @@ def test_ablation_deadline_upper_bound_and_worker_stopped() -> None:
     assert "worker_stopped=True" in str(exc_info2.value)
     assert not uncoop_completed
 
+
+def test_ablation_native_blocked_worker_unconfirmed_exit_and_halt() -> None:
+    """A worker blocked outside Python evaluation must be reported as unconfirmed exit."""
+    import threading
+    import time
+
+    native_lock = threading.Lock()
+    native_lock.acquire()
+
+    def native_blocked_worker() -> str:
+        native_lock.acquire()
+        return "done"
+
+    t0 = time.perf_counter()
+    with pytest.raises(TimeoutError) as exc_info:
+        ablation._execute_cell_with_deadline(
+            native_blocked_worker,
+            exec_time=0.1,
+        )
+
+    elapsed = time.perf_counter() - t0
+    assert 0.1 <= elapsed < 0.6
+    assert "worker_stopped=False" in str(exc_info.value) or "UNCONFIRMED_EXIT" in str(exc_info.value)
+
+    native_lock.release()
+
+
+def test_ablation_blocking_cancellation_callback() -> None:
+    """A blocking cancellation callback must not freeze the caller or delay timeout publication."""
+    import threading
+    import time
+
+    cancel_evt = threading.Event()
+    callback_lock = threading.Lock()
+    callback_lock.acquire()
+
+    def blocking_callback() -> None:
+        callback_lock.acquire()
+
+    def slow_worker() -> str:
+        cancel_evt.wait(timeout=2.0)
+        return "done"
+
+    t0 = time.perf_counter()
+    with pytest.raises(TimeoutError) as exc_info:
+        ablation._execute_cell_with_deadline(
+            slow_worker,
+            exec_time=0.1,
+            cancel_event=cancel_evt,
+            cancel_callback=blocking_callback,
+        )
+
+    elapsed = time.perf_counter() - t0
+    assert 0.1 <= elapsed < 0.6
+    assert "deadline exceeded" in str(exc_info.value).lower()
+
+    callback_lock.release()
+
