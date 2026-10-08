@@ -25,6 +25,9 @@ from tests.test_server_receipts import contribution, headers, paid_api  # noqa: 
 
 USAGE = {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12}
 SDK_USAGE = {**USAGE, "successful_requests": 1}
+# paid_api patches the shared subprocess module to prevent worker dispatch.
+# Capture this before fixture setup, and use it only for the fixed Node harness.
+_NODE_POPEN = subprocess.Popen
 
 
 def ledger(tmp_path):
@@ -638,6 +641,97 @@ console.log(JSON.stringify(result));'''
     assert "not recorded" in rendered[0] and "unreadable" in rendered[1]
     assert "Incomplete" in rendered[2] and "$" not in rendered[2]
     assert "unreadable" in rendered[3]
+
+
+def test_actual_run_header_keeps_auxiliary_scope_separate_and_clears_stale_dom(paid_api, monkeypatch):
+    """Both run HTTP projections must reach the shipped header without inventing a combined bill."""
+    node = shutil.which("node")
+    assert node, "Node required for the run-header seam"
+    client, launch, root = paid_api
+    # Build the reference through the real PDF admission path.  Starting a
+    # paper-less run creates its empty ledger before this fixture can bind a
+    # reference, which is deliberately not retrofitted by Collector.
+    sdk(monkeypatch)
+    paper = client.post("/api/papers", headers=headers(), files={"file": ("header.pdf", b"%PDF-offline")})
+    assert paper.status_code == 200, paper.text
+    accepted = client.post("/api/runs", headers=headers(),
+                           json={"topic": "Synthetic header run", "paper_id": paper.json()["paper_id"]})
+    assert accepted.status_code == 202, accepted.text
+    run_id = accepted.json()["run_id"]
+    directory = root / run_id
+
+    collector = aux.Collector(directory / aux.FILE_NAME)
+    sequence = collector.begin("translation", "http_attempt", "qwen3.5-plus")
+    collector.settle(sequence, aux.parse_usage(USAGE, "qwen3.5-plus"), "returned")
+    collector.finish()
+    (directory / "status.json").write_text(json.dumps({
+        "topic": "Synthetic header run", "stage": "review",
+        "usage": {"total_tokens": 999, "cost_usd": 0.1234, "cost_complete": True,
+                  "accounting_scope": "crew_nodes", "agents": []},
+        "usage_accounting": {"state": "unavailable", "run_complete": False,
+                             "in_flight_request_may_have_spent": True},
+    }), encoding="utf-8")
+
+    current = client.get(f"/api/runs/{run_id}")
+    assert current.status_code == 200, current.text
+    known = current.json()
+    assert known["auxiliary_usage"]["observed_tokens"] == 12
+    assert known["auxiliary_usage"]["observed_cost_usd"] > 0
+    assert known["auxiliary_usage"]["pdf_reference"]["relation"] == "reference_only"
+    reference = known["auxiliary_usage"]["pdf_reference"]["observation"]
+    assert reference == paper.json()["auxiliary_usage"]
+    assert reference["observed_tokens"] == 12 and reference["observed_cost_usd"] > 0
+    assert known["auxiliary_usage"]["call_count"] == 1
+    assert known["auxiliary_usage"]["observed_cost_usd"] == known["auxiliary_usage"]["calls"][0]["observed_cost_usd"]
+    assert known["usage_accounting"]["state"] == "unavailable"
+
+    (directory / aux.FILE_NAME).unlink()
+    progress = client.get(f"/api/runs/{run_id}/progress")
+    assert progress.status_code == 200, progress.text
+    missing = progress.json()
+    assert missing["auxiliary_usage"]["record_state"] == "not_recorded"
+
+    broken_bytes = b'{"schema_version":'
+    (directory / aux.FILE_NAME).write_bytes(broken_bytes)
+    corrupt = client.get(f"/api/runs/{run_id}")
+    assert corrupt.status_code == 200, corrupt.text
+    unreadable = corrupt.json()
+    assert unreadable["auxiliary_usage"]["record_state"] == "unreadable"
+    assert (directory / aux.FILE_NAME).read_bytes() == broken_bytes
+
+    script = Path(__file__).with_name("js") / "run_auxiliary_header_contract.mjs"
+    # Do not unpatch subprocess.Popen globally: even while Node runs, a backend
+    # worker must still hit paid_api's mock. This direct handle cannot run it.
+    assert runs.subprocess.Popen is launch
+
+    def run_header(fault):
+        command = [node, str(script), json.dumps(known), json.dumps(missing), json.dumps(unreadable), fault]
+        # Popen.__exit__ waits without a deadline. Keep both ordinary execution
+        # and timeout cleanup bounded instead of using its context manager.
+        process = _NODE_POPEN(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              text=True, encoding="utf-8")
+        try:
+            stdout, stderr = process.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            try:
+                stdout, stderr = process.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                pytest.fail("Run-header Node harness did not finish draining within five seconds after kill")
+            pytest.fail("Run-header Node harness timed out:\n" + stdout + stderr)
+        return process.returncode, stdout, stderr
+
+    returncode, stdout, stderr = run_header("none")
+    assert returncode == 0, stdout + stderr
+    assert "PASS run_auxiliary_header" in stdout
+    # The same CLI must fail for the intended lost-DOM assertion, not a missing
+    # browser stub, a ReferenceError, or an unrelated startup failure.
+    returncode, stdout, stderr = run_header("drop_auxiliary")
+    assert returncode != 0
+    assert "AssertionError [ERR_ASSERTION]: run header lost auxiliary observation" in stderr, stderr
+    assert "PASS run_auxiliary_header" not in stdout
+    assert runs.subprocess.Popen is launch
+    launch.assert_called_once()
 
 
 @pytest.mark.parametrize("mode", ["known", "missing", "corrupt", "failed"])

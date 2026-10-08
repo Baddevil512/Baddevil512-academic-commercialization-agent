@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import json
 import unittest
+from copy import deepcopy
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -28,6 +30,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 import api.runs as runs
+from academic_agent.run_terminal import TerminalRecord, UsageAccounting, commit_terminal_record
 from api.main import app
 from api.models import RunProgress, RunStatus
 
@@ -90,6 +93,17 @@ _STATUS = {
         "go_no_go_allowed": True,
     },
     "quality_review": {"status": "fallback", "failure_type": "RuntimeError"},
+    "report_audit": {
+        "status": "completed", "findings": 3, "citation_scope_checked": 5,
+        "citation_scope_unverifiable": 2,
+    },
+    "consistency": {"status": "completed", "blockers": 1, "warnings": 2},
+    "checkpointing": {
+        "state": "partial", "committed_nodes": ["retrieval"], "errors": [],
+    },
+    "recovery": {
+        "state": "reused", "reused_nodes": ["retrieval"], "next_node": "academic",
+    },
     "observability": {"state": "active", "backend": "phoenix",
                       "trace_id": "0123456789abcdef0123456789abcdef",
                       "delivery": "attempted", "content_capture": "redacted"},
@@ -110,6 +124,17 @@ class _Run:
         (directory / "evidence_gap_shadow.json").write_text(
             json.dumps(_STATUS["evidence_gap_shadow"]), encoding="utf-8"
         )
+        started = datetime(2026, 8, 14, tzinfo=UTC)
+        commit_terminal_record(directory, TerminalRecord(
+            state="completed", reason_code="worker_completed",
+            termination_method="worker_exit", started_at=started,
+            ended_at=started + timedelta(seconds=9), elapsed_seconds=9,
+            usage=_STATUS["usage"], checkpointing=_STATUS["checkpointing"],
+            recovery=_STATUS["recovery"], usage_accounting=UsageAccounting(
+                state="complete", snapshot_at=started, run_complete=True,
+                in_flight_request_may_have_spent=False,
+            ),
+        ))
 
     def close(self) -> None:
         self._tmp.cleanup()
@@ -124,9 +149,47 @@ class StateReachesTheClientTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         self.client = TestClient(app)
+        # Freeze the real disk projection once. The expected values must not
+        # pass through either response model, or a shared default can mask a
+        # dropped non-default field on both HTTP paths.
+        self.frozen_state = deepcopy(runs.get_state(self.run.run_id))
 
     def _state_keys(self) -> set[str]:
-        return set(runs.get_state(self.run.run_id)) - _INTERNAL_ONLY
+        return set(self.frozen_state) - _INTERNAL_ONLY
+
+    def _response(self, suffix: str) -> dict:
+        response = self.client.get(f"/api/runs/{self.run.run_id}{suffix}")
+        self.assertEqual(response.status_code, 200)
+        return response.json()
+
+    def _responses(self) -> tuple[dict, dict]:
+        return self._response(""), self._response("/progress")
+
+    def _assert_frozen_response(self, body: dict) -> None:
+        for key in self._state_keys():
+            with self.subTest(field=key):
+                self.assertIn(key, body)
+                self.assertEqual(body[key], self.frozen_state[key])
+
+    def _assert_frozen_field(self, status: dict, progress: dict, key: str) -> None:
+        self.assertIn(key, status)
+        self.assertIn(key, progress)
+        self.assertEqual(status[key], self.frozen_state[key])
+        self.assertEqual(progress[key], self.frozen_state[key])
+
+    def _assert_frozen_projection_directly(self, status: dict, progress: dict) -> None:
+        """Negative controls need the same assertion without subTest swallowing it."""
+        for key in self._state_keys():
+            self._assert_frozen_field(status, progress, key)
+
+    def _progress_from_constructor_without(self, omitted: str) -> dict:
+        """Drop one real endpoint constructor argument, then serialize over HTTP."""
+        def omit(**values):
+            values.pop(omitted)
+            return RunProgress(**values)
+
+        with patch("api.main.RunProgress", side_effect=omit):
+            return self._response("/progress")
 
     def test_every_field_a_run_produces_is_declared_by_the_status_model(self):
         missing = self._state_keys() - set(RunStatus.model_fields)
@@ -144,14 +207,34 @@ class StateReachesTheClientTests(unittest.TestCase):
             "declare",
         )
 
+    def test_fixture_persists_nondefault_runtime_and_audit_projections(self):
+        """The seam fixture must not let model defaults impersonate known facts."""
+        directory = self.run.root / self.run.run_id
+        terminal = json.loads((directory / "terminal.json").read_text(encoding="utf-8"))
+        # The immutable file owns these facts, while its nested public summary
+        # contains process metadata only. Check their actual top-level delivery.
+        for field in ("usage", "checkpointing", "recovery"):
+            self.assertEqual(terminal[field], _STATUS[field])
+        for field in ("checkpointing", "recovery", "report_audit", "consistency"):
+            with self.subTest(field=field):
+                self.assertEqual(self.frozen_state[field], _STATUS[field])
+                self.assertNotEqual(self.frozen_state[field], {})
+        self.assertEqual(self.frozen_state["terminal"]["record_state"], "committed")
+        self.assertEqual(terminal["state"], "completed")
+        self.assertEqual(self.frozen_state["terminal"]["reason_code"], terminal["reason_code"])
+        for body in self._responses():
+            self.assertEqual(body["terminal"], self.frozen_state["terminal"])
+            for field in ("checkpointing", "recovery"):
+                self.assertEqual(body[field], terminal[field])
+            for field in ("report_audit", "consistency"):
+                self.assertEqual(body[field], _STATUS[field])
+
     def test_the_status_endpoint_returns_them_with_their_values(self):
         """Declaring the field is half of it. The other half is that the
         endpoint actually passes the value through rather than leaving the
         default in place, which looks identical in the schema."""
-        body = self.client.get(f"/api/runs/{self.run.run_id}").json()
-        for key in self._state_keys():
-            with self.subTest(field=key):
-                self.assertIn(key, body)
+        body = self._response("")
+        self._assert_frozen_response(body)
         self.assertEqual(body["usage"]["cost_usd"], 0.0333)
         self.assertEqual(body["claim_grounding"]["unverifiable"], 2)
         self.assertEqual(
@@ -167,10 +250,8 @@ class StateReachesTheClientTests(unittest.TestCase):
     def test_the_progress_endpoint_returns_them_with_their_values(self):
         """This endpoint names each field in its constructor, so it is the one
         that silently drops a newly added key. It is why both are asserted."""
-        body = self.client.get(f"/api/runs/{self.run.run_id}/progress").json()
-        for key in self._state_keys():
-            with self.subTest(field=key):
-                self.assertIn(key, body)
+        body = self._response("/progress")
+        self._assert_frozen_response(body)
         self.assertEqual(body["usage"]["cost_usd"], 0.0333)
         self.assertEqual(body["claim_grounding"]["unverifiable"], 2)
         self.assertEqual(
@@ -194,11 +275,30 @@ class StateReachesTheClientTests(unittest.TestCase):
     def test_the_two_endpoints_do_not_disagree(self):
         """They are built differently — one splats get_state(), one names every
         field — so they drift apart rather than break together."""
-        status = self.client.get(f"/api/runs/{self.run.run_id}").json()
-        progress = self.client.get(f"/api/runs/{self.run.run_id}/progress").json()
+        status, progress = self._responses()
         for key in self._state_keys():
             with self.subTest(field=key):
                 self.assertEqual(status[key], progress[key])
+
+    def test_the_projection_guard_rejects_an_omitted_progress_argument(self):
+        """A newly named progress constructor argument must not silently default."""
+        status = self._response("")
+        progress = self._progress_from_constructor_without("usage")
+        self.assertEqual(status["usage"], self.frozen_state["usage"])
+        self.assertIsNone(progress["usage"])
+        with self.assertRaises(AssertionError):
+            self._assert_frozen_projection_directly(status, progress)
+
+    def test_the_projection_guard_rejects_a_shared_default(self):
+        """Both response models can default together; the frozen disk view wins."""
+        shared_default = deepcopy(self.frozen_state)
+        shared_default.pop("claim_grounding")
+        with patch.object(runs, "get_state", return_value=shared_default):
+            status, progress = self._responses()
+        self.assertIsNone(status["claim_grounding"])
+        self.assertIsNone(progress["claim_grounding"])
+        with self.assertRaises(AssertionError):
+            self._assert_frozen_projection_directly(status, progress)
 
     def test_the_worker_revision_reaches_both_public_endpoints(self):
         """Execution identity must cross the disk/API seam byte-for-byte.
