@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import threading
 from datetime import UTC, date, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -782,4 +783,126 @@ def test_ablation_blocking_cancellation_callback() -> None:
     assert "deadline exceeded" in str(exc_info.value).lower()
 
     callback_lock.release()
+
+
+def test_run_cell_with_actual_crew_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    """run_cell must execute successfully using the actual Crew class without Pydantic validation errors."""
+    from crewai import Agent, Crew, Task
+    from crewai.tasks.task_output import TaskOutput
+
+    collection = _collection()
+    agent = Agent(role="Test Agent", goal="Goal", backstory="Backstory")
+    task = Task(name="monolith_report_task", description="Desc", expected_output="Exp", agent=agent)
+    actual_crew = Crew(agents=[agent], tasks=[task])
+
+    dummy_output = TaskOutput(
+        description="Desc",
+        raw="# Executive Summary\nTest content",
+        agent="Test Agent",
+    )
+    monkeypatch.setattr(
+        Crew,
+        "kickoff",
+        lambda self, inputs=None: SimpleNamespace(tasks_output=[dummy_output]),
+    )
+
+    monkeypatch.setattr(
+        ablation,
+        "_fixture",
+        lambda *args: (collection, {"sha256_16": "fixture-digest"}),
+    )
+    monkeypatch.setattr(ablation.benchmark_fixtures, "age_days", lambda num: 1.0)
+    monkeypatch.setattr(
+        ablation,
+        "build_variant_crew",
+        lambda *args, **kwargs: (actual_crew, "monolith_report_task"),
+    )
+
+    output_root = Path(__file__).parents[1] / "outputs"
+    with tempfile.TemporaryDirectory(prefix="test-actual-crew-", dir=output_root) as raw:
+        root = Path(raw)
+        cell = _cell("monolith")
+
+        # 1. With max_execution_time enabled
+        meta1 = ablation.run_cell(
+            cell,
+            experiment_id="test_actual_crew_exp1",
+            experiment_root=root,
+            commit_sha="test_commit",
+            max_execution_time=10,
+        )
+        assert meta1["status"] == "success"
+
+        # 2. Without max_execution_time
+        meta2 = ablation.run_cell(
+            cell,
+            experiment_id="test_actual_crew_exp2",
+            experiment_root=root,
+            commit_sha="test_commit",
+            max_execution_time=None,
+        )
+        assert meta2["status"] == "success"
+
+
+def test_full_integration_unconfirmed_exit_halts_main_batch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Full integration: unconfirmed worker exit sets error_timeout_unconfirmed and halts main()."""
+    collection = _collection()
+    native_lock = threading.Lock()
+    native_lock.acquire()
+
+    def blocked_kickoff(inputs=None):
+        native_lock.acquire()
+        return SimpleNamespace(tasks_output=[])
+
+    class UnconfirmedCrew:
+        tasks: list[object] = []
+        agents: list[object] = []
+
+        def kickoff(self, inputs=None):
+            return blocked_kickoff(inputs)
+
+    unconfirmed_crew = UnconfirmedCrew()
+
+    monkeypatch.setattr(
+        ablation,
+        "_fixture",
+        lambda *args: (collection, {"sha256_16": "fixture-digest"}),
+    )
+    monkeypatch.setattr(ablation.benchmark_fixtures, "age_days", lambda num: 1.0)
+    monkeypatch.setattr(
+        ablation,
+        "build_variant_crew",
+        lambda *args, **kwargs: (unconfirmed_crew, "monolith_report_task"),
+    )
+    monkeypatch.setattr(
+        ablation,
+        "preflight_fixtures",
+        lambda cases: {"03": {"sha256_16": "fixture-digest"}},
+    )
+    monkeypatch.setattr(ablation, "_commit_sha", lambda: "mockedcommit")
+
+    output_root = Path(__file__).parents[1] / "outputs"
+    with tempfile.TemporaryDirectory(prefix="test-unconfirmed-halt-", dir=output_root) as raw:
+        root = Path(raw)
+        monkeypatch.setattr(ablation, "ABLATION_ROOT", root)
+
+        try:
+            exit_code = ablation.main(["--execute", "--pilot", "--max-execution-time", "1"])
+            assert exit_code == 0
+
+            exp_dirs = list(root.glob("*"))
+            assert len(exp_dirs) == 1
+            cell_meta_files = list(exp_dirs[0].glob("**/meta.json"))
+            assert len(cell_meta_files) == 1
+
+            meta_data = json.loads(cell_meta_files[0].read_text(encoding="utf-8"))
+            assert meta_data["status"] == "error_timeout_unconfirmed"
+            assert meta_data.get("usage_is_time_incomplete") is True
+            if "usage" in meta_data and isinstance(meta_data["usage"], dict):
+                assert meta_data["usage"]["cost_complete"] is False
+        finally:
+            native_lock.release()
+
 

@@ -665,8 +665,8 @@ def run_cell(
     Execution Deadline Guarantees:
     - Local execution termination & resource cleanup: When max_execution_time is set,
       bounded local wait time (elapsed_seconds < deadline + margin) and local worker
-      cleanup are guaranteed. If the deadline fires, the cell aborts locally and
-      records status="error_timeout".
+      cleanup are attempted. If local exit cannot be confirmed, status="error_timeout_unconfirmed"
+      is recorded, usage_is_time_incomplete=True is marked, and the main batch loop halts.
     - Remote provider cancellation & token consumption: Once an HTTP request is
       dispatched to an external LLM provider, server-side generation cancellation
       and token/cost consumption depend on provider API behavior and are not
@@ -720,7 +720,6 @@ def run_cell(
         cancel_event = getattr(crew_obj, "cancel_event", None)
         if not isinstance(cancel_event, threading.Event):
             cancel_event = threading.Event()
-            crew_obj.cancel_event = cancel_event
 
         cancel_cb = getattr(crew_obj, "cancel", None)
         if not callable(cancel_cb):
@@ -785,6 +784,10 @@ def run_cell(
         meta["elapsed_seconds"] = round(time.perf_counter() - start, 3)
         if crew_obj is not None:
             meta["usage"] = collect_usage(crew_obj).as_dict()
+        if meta.get("status") == "error_timeout_unconfirmed":
+            meta["usage_is_time_incomplete"] = True
+            if "usage" in meta and isinstance(meta["usage"], dict):
+                meta["usage"]["cost_complete"] = False
         meta["guardrails"] = recorder.summaries()
         meta["report_guardrail"] = recorder.task_summary(report_task_name)
 
@@ -832,7 +835,8 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         metavar="SECONDS",
         help=(
             "overall cell execution deadline in seconds (overrides ABLATION_MAX_EXECUTION_TIME). "
-            "Guarantees bounded local execution wait time and local worker cleanup; "
+            "Guarantees bounded local execution wait time and local worker cleanup attempts; "
+            "unconfirmed thread exits set error_timeout_unconfirmed and halt paid batch execution; "
             "remote LLM provider token/cost consumption depends on provider API behavior."
         ),
     )
