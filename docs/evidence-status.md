@@ -1,6 +1,6 @@
 # Current evidence status
 
-Current ledger, updated 2026-10-01. The initial documentation consolidation
+Current ledger, updated 2026-10-10. The initial documentation consolidation
 used public main `0fdaa76a107cf034c16c1ffa6e3ae623e4c63fe2` on 2026-09-05;
 its dated baseline is historical, not the identity of every later entry.
 This page separates implemented contracts from observed behaviour and claims
@@ -52,6 +52,16 @@ this does not establish native delivery, compliance or semantic gain. Inspection
 of the current production factory/task configuration shows JSON Object mode
 without supplying the complete schema; that separate integration has not been
 changed by this preparation or validated by a new production HTTP observation.
+
+The [Reviewer v3 closeout](results-2026-10-10-reviewer-comparison-v3.md) records
+all eight ordinary checks and four preparation cells passing before the one authorized native request: its HTTP
+200 response violated the transmitted 300-code-point reason bound, so local
+validation delivered zero reports and the semantic comparison is `not_run`.
+The consumed batch is closed without repair or retry. The accompanying
+[offline feasibility review](reviewer-output-constraint-feasibility.md) leaves
+provider field enforcement unestablished, and the [reason-schema probe proposal](prereg-2026-10-10-reviewer-reason-schema-probe.md)
+remains design-only with endpoint, budget and runner pending; neither grants a
+new request, private-data transfer, production activation or a successor study.
 
 A separate [saved-source production wrapper](operating-guide.md#optional-saved-source-locator)
 is default-off. Its gated page/API reuses the bounded one-selection locator,
