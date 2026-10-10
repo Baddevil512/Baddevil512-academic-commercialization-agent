@@ -611,6 +611,8 @@ def _execute_cell_with_deadline(
     evt = cancel_event or threading.Event()
     container: dict[str, Any] = {"result": None, "exception": None}
 
+    initial_threads = set(threading.enumerate())
+
     def _worker() -> None:
         try:
             container["result"] = kickoff_fn()
@@ -621,7 +623,11 @@ def _execute_cell_with_deadline(
     worker_thread.start()
     worker_thread.join(timeout=timeout_val)
 
-    if worker_thread.is_alive():
+    cb_thread: threading.Thread | None = None
+    cell_threads = (set(threading.enumerate()) - initial_threads) - {worker_thread}
+    has_alive_cell_threads = any(t.is_alive() for t in cell_threads)
+
+    if worker_thread.is_alive() or has_alive_cell_threads:
         # Stage 1: Cooperative signal & bounded cancellation callback invocation
         evt.set()
         if cancel_callback is not None:
@@ -636,7 +642,11 @@ def _execute_cell_with_deadline(
             _interrupt_worker_thread(worker_thread.ident)
             worker_thread.join(timeout=0.1)
 
-        worker_stopped = not worker_thread.is_alive()
+        cb_alive = cb_thread.is_alive() if cb_thread is not None else False
+        remaining_cell_threads = set(threading.enumerate()) - initial_threads
+        any_alive = any(t.is_alive() for t in remaining_cell_threads) or cb_alive
+
+        worker_stopped = not any_alive
         status_flag = (
             "worker_stopped=True"
             if worker_stopped

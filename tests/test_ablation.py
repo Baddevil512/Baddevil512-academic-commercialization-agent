@@ -834,6 +834,7 @@ def test_run_cell_with_actual_crew_model(monkeypatch: pytest.MonkeyPatch) -> Non
         assert meta1["status"] == "success"
 
         # 2. Without max_execution_time
+        monkeypatch.delenv("ABLATION_MAX_EXECUTION_TIME", raising=False)
         meta2 = ablation.run_cell(
             cell,
             experiment_id="test_actual_crew_exp2",
@@ -904,5 +905,136 @@ def test_full_integration_unconfirmed_exit_halts_main_batch(
                 assert meta_data["usage"]["cost_complete"] is False
         finally:
             native_lock.release()
+
+
+def test_integration_blocking_cancellation_callback_halts_batch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Outer worker times out and its cancellation callback blocks indefinitely; main() must set unconfirmed status and halt."""
+    import time
+
+    collection = _collection()
+    callback_gate = threading.Lock()
+    callback_gate.acquire()
+
+    def blocking_cancel_cb() -> None:
+        callback_gate.acquire()
+
+    class StalledCrewWithBlockingCancel:
+        tasks: list[object] = []
+        agents: list[object] = []
+
+        def cancel(self) -> None:
+            blocking_cancel_cb()
+
+        def kickoff(self, inputs=None):
+            time.sleep(2.0)
+            return SimpleNamespace(tasks_output=[])
+
+    crew_obj = StalledCrewWithBlockingCancel()
+
+    monkeypatch.setattr(
+        ablation,
+        "_fixture",
+        lambda *args: (collection, {"sha256_16": "fixture-digest"}),
+    )
+    monkeypatch.setattr(ablation.benchmark_fixtures, "age_days", lambda num: 1.0)
+    monkeypatch.setattr(
+        ablation,
+        "build_variant_crew",
+        lambda *args, **kwargs: (crew_obj, "monolith_report_task"),
+    )
+    monkeypatch.setattr(
+        ablation,
+        "preflight_fixtures",
+        lambda cases: {"03": {"sha256_16": "fixture-digest"}},
+    )
+    monkeypatch.setattr(ablation, "_commit_sha", lambda: "mockedcommit")
+
+    output_root = Path(__file__).parents[1] / "outputs"
+    with tempfile.TemporaryDirectory(prefix="test-blocking-cancel-halt-", dir=output_root) as raw:
+        root = Path(raw)
+        monkeypatch.setattr(ablation, "ABLATION_ROOT", root)
+
+        try:
+            exit_code = ablation.main(["--execute", "--pilot", "--max-execution-time", "1"])
+            assert exit_code == 0
+
+            exp_dirs = list(root.glob("*"))
+            assert len(exp_dirs) == 1
+            cell_meta_files = list(exp_dirs[0].glob("**/meta.json"))
+            assert len(cell_meta_files) == 1
+
+            meta_data = json.loads(cell_meta_files[0].read_text(encoding="utf-8"))
+            assert meta_data["status"] == "error_timeout_unconfirmed"
+            assert meta_data.get("usage_is_time_incomplete") is True
+            if "usage" in meta_data and isinstance(meta_data["usage"], dict):
+                assert meta_data["usage"]["cost_complete"] is False
+        finally:
+            callback_gate.release()
+
+
+def test_integration_active_child_thread_halts_batch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Outer worker exits quickly but leaves an active spawned child thread; main() must set unconfirmed status and halt."""
+    collection = _collection()
+    child_gate = threading.Lock()
+    child_gate.acquire()
+
+    class SpawnChildCrew:
+        tasks: list[object] = []
+        agents: list[object] = []
+
+        def kickoff(self, inputs=None):
+            def background_worker():
+                child_gate.acquire()
+
+            t = threading.Thread(target=background_worker, daemon=True)
+            t.start()
+            return SimpleNamespace(tasks_output=[])
+
+    crew_obj = SpawnChildCrew()
+
+    monkeypatch.setattr(
+        ablation,
+        "_fixture",
+        lambda *args: (collection, {"sha256_16": "fixture-digest"}),
+    )
+    monkeypatch.setattr(ablation.benchmark_fixtures, "age_days", lambda num: 1.0)
+    monkeypatch.setattr(
+        ablation,
+        "build_variant_crew",
+        lambda *args, **kwargs: (crew_obj, "monolith_report_task"),
+    )
+    monkeypatch.setattr(
+        ablation,
+        "preflight_fixtures",
+        lambda cases: {"03": {"sha256_16": "fixture-digest"}},
+    )
+    monkeypatch.setattr(ablation, "_commit_sha", lambda: "mockedcommit")
+
+    output_root = Path(__file__).parents[1] / "outputs"
+    with tempfile.TemporaryDirectory(prefix="test-child-thread-halt-", dir=output_root) as raw:
+        root = Path(raw)
+        monkeypatch.setattr(ablation, "ABLATION_ROOT", root)
+
+        try:
+            exit_code = ablation.main(["--execute", "--pilot", "--max-execution-time", "1"])
+            assert exit_code == 0
+
+            exp_dirs = list(root.glob("*"))
+            assert len(exp_dirs) == 1
+            cell_meta_files = list(exp_dirs[0].glob("**/meta.json"))
+            assert len(cell_meta_files) == 1
+
+            meta_data = json.loads(cell_meta_files[0].read_text(encoding="utf-8"))
+            assert meta_data["status"] == "error_timeout_unconfirmed"
+            assert meta_data.get("usage_is_time_incomplete") is True
+            if "usage" in meta_data and isinstance(meta_data["usage"], dict):
+                assert meta_data["usage"]["cost_complete"] is False
+        finally:
+            child_gate.release()
+
 
 
