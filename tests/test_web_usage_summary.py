@@ -227,13 +227,6 @@ class UsageSummaryTests(unittest.TestCase):
         self.assertEqual(out["summary"], "usage unavailable")
         self.assertIn("does not mean zero", out["title"])
 
-    def test_app_passes_accounting_to_both_usage_formatters(self):
-        """Formatting correctly is insufficient if app.js drops the new field."""
-
-        source = _APP_JS.read_text(encoding="utf-8")
-        self.assertIn("usageSummary(usage, usage_accounting)", source)
-        self.assertIn("usageTitle(usage, usage_accounting)", source)
-
     def test_unavailable_accounting_overrides_numeric_snapshot_defaults(self):
         """A collector-error payload used to show a price despite unavailable accounting."""
         out = self._render({

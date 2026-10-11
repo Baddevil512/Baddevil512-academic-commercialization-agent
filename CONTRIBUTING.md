@@ -77,6 +77,23 @@ experiment tests, some of which are included in source identity hashes, merely
 to shrink the default suite. Warning policy, full-suite collection and the
 cross-platform/browser/container boundaries remain unchanged.
 
+Keep source worktrees outside `outputs`: offline audit guards deliberately treat
+that path as private runtime data, so a checkout there can fail while reading
+its own source. Managed worktrees or the existing excluded `.claude/worktrees`
+boundary avoid that layout conflict. A nested offline checkout should have an
+empty ignored `.env` boundary to prevent discovery of its parent's real config,
+and its own virtual environment so editable imports refer to the tested source.
+See the [testing status and boundary map](docs/testing-status.md) for qualified
+measurements and the current coverage targets.
+
+Negative controls need an assertion path that raises directly. A `subTest`
+records an assertion failure instead of propagating it into an outer
+`assertRaises`; keep per-field subtests for positive delivery checks and use
+the same underlying assertions directly for deliberate mutants. Mocking
+`api.runs.subprocess.Popen` also patches the shared standard-library module.
+Keep real, fixed Node harness launches separate from worker-launch mocks,
+with explicit timeout termination and bounded stream cleanup.
+
 ### Optional real-browser smoke
 
 ```bash

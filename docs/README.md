@@ -12,6 +12,7 @@ moving them or changing frozen experiment identities.
 |---|---|
 | What does it do, and can I run it? | [English](../README.md), [中文](../README.zh-CN.md) |
 | What is implemented versus actually validated? | [Current evidence status](evidence-status.md) |
+| Which test layers cover the boundaries, and what remains unproven? | [Testing status and boundary map](testing-status.md) |
 | How do I configure providers, deploy and use the API? | [Operating guide](operating-guide.md) |
 | Where are the important design decisions and exclusions? | [AGENTS.md](../AGENTS.md) |
 | How do I contribute and reproduce CI? | [Contributing](../CONTRIBUTING.md) |
