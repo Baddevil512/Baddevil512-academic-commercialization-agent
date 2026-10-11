@@ -8,6 +8,8 @@ the current evidence status for today's qualified conclusions; open a dated
 protocol or result when tracing a specific decision. An archive link does not
 authorize rerunning a paid batch, moving its files or treating a failed gate as passed.
 
+- [2026-10-11 Reviewer follow-up closeout](results-2026-10-11-reviewer-follow-up-closeout.md): the separate reason-schema invocation stopped at RSP01 with `observation_unavailable`; RSP02/RSP03 are `not_run`, POST count and usage are unknown, and the consumed invocation cannot be replayed. A later offline parser diagnostic found only R5 on one local snapshot, with no provider call and no conclusion about provider authentication or the historical failure.
+
 - [2026-10-10 Reviewer comparison v3 closeout](results-2026-10-10-reviewer-comparison-v3.md): all eight ordinary checks and four preparation cells passed before one response violated the transmitted 300-code-point reason bound; zero reports were delivered, semantic comparison is `not_run`, and the consumed batch is closed without repair or retry.
 
 - [2026-10-10 offline Reviewer output-constraint review](reviewer-output-constraint-feasibility.md): separates the local schema and intercepted-byte coverage from unestablished provider model/region/keyword enforcement; no new native test, successor allowance or production change.
