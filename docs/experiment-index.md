@@ -8,6 +8,14 @@ the current evidence status for today's qualified conclusions; open a dated
 protocol or result when tracing a specific decision. An archive link does not
 authorize rerunning a paid batch, moving its files or treating a failed gate as passed.
 
+- [2026-10-11 Reviewer follow-up closeout](results-2026-10-11-reviewer-follow-up-closeout.md): the separate reason-schema invocation stopped at RSP01 with `observation_unavailable`; RSP02/RSP03 are `not_run`, POST count and usage are unknown, and the consumed invocation cannot be replayed. A later offline parser diagnostic found only R5 on one local snapshot, with no provider call and no conclusion about provider authentication or the historical failure.
+
+- [2026-10-10 Reviewer comparison v3 closeout](results-2026-10-10-reviewer-comparison-v3.md): all eight ordinary checks and four preparation cells passed before one response violated the transmitted 300-code-point reason bound; zero reports were delivered, semantic comparison is `not_run`, and the consumed batch is closed without repair or retry.
+
+- [2026-10-10 offline Reviewer output-constraint review](reviewer-output-constraint-feasibility.md): separates the local schema and intercepted-byte coverage from unestablished provider model/region/keyword enforcement; no new native test, successor allowance or production change.
+
+- [2026-10-10 Reviewer reason-schema probe proposal](prereg-2026-10-10-reviewer-reason-schema-probe.md): design only, with three fixed synthetic controls and an unchanged 300-code-point bound; endpoint, numeric budget, implementation and execution authorization remain pending, with zero native calls.
+
 - [2026-10-01 Reviewer comparison v2 closeout](results-2026-10-01-reviewer-comparison-v2.md): one response-backed request stopped on reason lengths exceeding an untransmitted field bound; no final reports or semantic comparison, no retry or production activation.
 
 - [2026-10-01 offline common Reviewer output contract](../evals/reviewer_output_contract_v1/README.md): explicit complete-schema addition and local intercepted-byte checks for newly prepared requests; no provider, new native batch or production integration.

@@ -1,11 +1,19 @@
 # Current evidence status
 
-Current ledger, updated 2026-10-01. The initial documentation consolidation
+Current ledger, updated 2026-10-11. The initial documentation consolidation
 used public main `0fdaa76a107cf034c16c1ffa6e3ae623e4c63fe2` on 2026-09-05;
 its dated baseline is historical, not the identity of every later entry.
 This page separates implemented contracts from observed behaviour and claims
 that have not been established.
 It does not change an experiment's result, threshold or authorization.
+
+The [testing status and boundary map](testing-status.md) distinguishes the
+current audit's local baseline from contributor-fork CI, describes the test
+layers and their limits, and records the bounded contract improvements being
+verified. The local complete regression is 7,417 passed, one existing skipped
+benchmark-dependent test and 1,677 subtests passed; this is not a new remote
+CI or native model observation. Historical totals below retain their original
+revision and date.
 
 ## Production capability
 
@@ -52,6 +60,26 @@ this does not establish native delivery, compliance or semantic gain. Inspection
 of the current production factory/task configuration shows JSON Object mode
 without supplying the complete schema; that separate integration has not been
 changed by this preparation or validated by a new production HTTP observation.
+
+The [Reviewer v3 closeout](results-2026-10-10-reviewer-comparison-v3.md) records
+all eight ordinary checks and four preparation cells passing before the one
+authorized native request. Its HTTP 200 response violated the transmitted
+300-code-point reason bound, so local validation delivered zero reports and the
+semantic comparison is `not_run`. The consumed batch is closed without repair
+or retry.
+
+The later [Reviewer follow-up closeout](results-2026-10-11-reviewer-follow-up-closeout.md)
+records the separate reason-schema batch and the subsequent offline local-rule
+diagnostic. The batch stopped with RSP01 `observation_unavailable` before a
+schema/control observation; RSP02/RSP03 are `not_run`, actual POST count and
+usage are unknown, and its single authorized invocation is consumed. The
+offline diagnostic made no provider call and found that the unchanged local
+parser still rejects the observed snapshot under rule R5; it neither proves
+provider authentication nor explains the historical native failure. The
+original [reason-schema probe proposal](prereg-2026-10-10-reviewer-reason-schema-probe.md)
+retains its original design-only status. These records do not establish provider
+field enforcement, model compatibility, semantic gain, production activation or
+permission to run a successor study.
 
 A separate [saved-source production wrapper](operating-guide.md#optional-saved-source-locator)
 is default-off. Its gated page/API reuses the bounded one-selection locator,

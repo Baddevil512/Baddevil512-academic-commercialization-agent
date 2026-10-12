@@ -189,6 +189,51 @@ def test_complete_accounting_without_measurement_cannot_certify_a_bill(runtime_c
         assert body["usage_accounting"]["state"] == "unavailable"
 
 
+def _assert_combined_usage_accounting_fault(body):
+    assert body["state"] == "completed"
+    assert body["runtime_metadata_unreadable"] == ["usage", "usage_accounting"]
+    assert body["usage"] is None
+    assert body["usage_accounting"] == {
+        "state": "unavailable", "snapshot_at": None, "through_stage": "",
+        "run_complete": False, "in_flight_request_may_have_spent": True,
+    }
+
+
+def test_combined_usage_and_accounting_faults_preserve_neighbouring_report(runtime_client):
+    """Two bad siblings are isolated together; neither can revive the other's facts."""
+    directory, client = runtime_client
+    path = directory / "status.json"
+    status = json.loads(path.read_text(encoding="utf-8"))
+    status["usage"] = {**USAGE, "total_tokens": False}
+    status["usage_accounting"] = {
+        "state": "complete", "snapshot_at": "2026-09-05T01:00:00+00:00",
+        "run_complete": False, "in_flight_request_may_have_spent": False,
+    }
+    original = json.dumps(status).encode("utf-8")
+    path.write_bytes(original)
+
+    for body in _responses(client):
+        _assert_combined_usage_accounting_fault(body)
+    assert client.get(f"/api/runs/{RID}/report").text == "# Preserved report"
+    assert client.get("/api/runs").status_code == 200
+    assert path.read_bytes() == original
+
+
+def test_combined_fault_contract_rejects_a_stale_complete_accounting(runtime_client):
+    """The paired-fault contract fails if stale completion escapes either reader."""
+    stale = {
+        "state": "completed", "runtime_metadata_unreadable": ["usage", "usage_accounting"],
+        "usage": None,
+        "usage_accounting": {
+            "state": "complete", "snapshot_at": "2026-09-05T01:00:00+00:00",
+            "through_stage": "Done", "run_complete": False,
+            "in_flight_request_may_have_spent": False,
+        },
+    }
+    with pytest.raises(AssertionError):
+        _assert_combined_usage_accounting_fault(stale)
+
+
 def test_legacy_collector_diagnostic_without_accounting_remains_explicit(runtime_client):
     """Readable diagnostic-only snapshots are unavailable, not a malformed or zero bill."""
     directory, client = runtime_client
