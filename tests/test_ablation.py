@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import threading
 from datetime import UTC, date, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -563,3 +564,477 @@ def test_run_cell_persists_the_selected_report_at_the_disk_boundary(
         assert meta["status"] == "success"
         assert delivered_path.read_text(encoding="utf-8") == "delivered report"
         assert meta["report_metrics"]["contract_status"] == "fail"
+
+
+def test_parse_args_max_execution_time() -> None:
+    """CLI --max-execution-time must parse correctly and reject non-positive values."""
+    args = ablation._parse_args(["--pilot", "--execute", "--max-execution-time", "120"])
+    assert args.max_execution_time == 120
+
+    with pytest.raises(SystemExit):
+        ablation._parse_args(["--pilot", "--execute", "--max-execution-time", "-5"])
+
+
+def test_max_execution_time_env_and_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Environment variable ABLATION_MAX_EXECUTION_TIME and explicit override work as expected."""
+    monkeypatch.setenv("ABLATION_MAX_EXECUTION_TIME", "300")
+    assert ablation._max_execution_time() == 300
+    assert ablation._max_execution_time(60) == 60
+
+    monkeypatch.setenv("ABLATION_MAX_EXECUTION_TIME", "invalid")
+    with pytest.raises(ValueError, match="ABLATION_MAX_EXECUTION_TIME"):
+        ablation._max_execution_time()
+
+
+def test_build_variant_crew_applies_max_execution_time(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Agent instances built by build_variant_crew must receive max_execution_time when configured."""
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    collection = _collection()
+
+    crew_mono, _ = ablation.build_variant_crew("monolith", collection, max_execution_time=45)
+    assert crew_mono.agents[0].max_execution_time == 45
+
+    crew_full, _ = ablation.build_variant_crew("full", collection, max_execution_time=90)
+    for agent in crew_full.agents:
+        assert getattr(agent, "max_execution_time", None) == 90
+
+
+def test_run_cell_execution_deadline_timeout_and_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stalled cell execution must trigger deadline, return within upper bound, and verify worker cleanup."""
+    collection = _collection()
+
+    class StalledCrew:
+        tasks: list[object] = []
+        agents: list[object] = []
+
+        def __init__(self) -> None:
+            import threading
+            self.cancel_event = threading.Event()
+            self.was_cancelled = False
+            self.completed = False
+
+        def cancel(self) -> None:
+            self.was_cancelled = True
+            self.cancel_event.set()
+
+        def kickoff(self, *, inputs: object) -> SimpleNamespace:
+            # Cooperatively wait for up to 2.0 seconds unless cancel_event fires
+            if self.cancel_event.wait(timeout=2.0):
+                return SimpleNamespace(tasks_output=[])
+            self.completed = True
+            return SimpleNamespace(tasks_output=[])
+
+    stalled_crew = StalledCrew()
+
+    monkeypatch.setattr(
+        ablation,
+        "_fixture",
+        lambda *args: (collection, {"sha256_16": "fixture-digest"}),
+    )
+    monkeypatch.setattr(ablation.benchmark_fixtures, "age_days", lambda num: 1.0)
+    monkeypatch.setattr(
+        ablation,
+        "build_variant_crew",
+        lambda *args, **kwargs: (stalled_crew, "monolith_report_task"),
+    )
+
+    output_root = Path(__file__).parents[1] / "outputs"
+    with tempfile.TemporaryDirectory(prefix="test-ablation-timeout-", dir=output_root) as raw:
+        root = Path(raw)
+        cell = _cell("monolith")
+        meta = ablation.run_cell(
+            cell,
+            experiment_id="test_timeout_experiment",
+            experiment_root=root,
+            commit_sha="test_commit",
+            max_execution_time=1,  # 1 second deadline against 2s workload
+        )
+
+        cell_dir = ablation._cell_directory(root, cell)
+        meta_file = cell_dir / "meta.json"
+        error_log = cell_dir / "error.log"
+
+        assert meta["status"] == "error_timeout"
+        assert "deadline exceeded" in meta["error"].lower()
+        assert meta_file.exists()
+        assert error_log.exists()
+        assert "TimeoutError" in error_log.read_text(encoding="utf-8")
+        # Strict upper-bound timing check: must return within 1.5s (not block for 2.0s+)
+        assert 1.0 <= meta["elapsed_seconds"] < 1.5
+        # Worker stop verification: cleanup/cancel event was triggered and work never completed
+        assert stalled_crew.was_cancelled or stalled_crew.cancel_event.is_set()
+
+
+def test_ablation_deadline_upper_bound_and_worker_stopped() -> None:
+    """Directly verify _execute_cell_with_deadline upper bound timing and worker stopped status."""
+    import threading
+    import time
+
+    # Test 1: Cooperative worker with cancellation callback
+    cancel_evt = threading.Event()
+    was_cancelled = False
+    coop_completed = False
+
+    def cooperative_worker() -> str:
+        nonlocal coop_completed
+        if cancel_evt.wait(timeout=2.0):
+            return "cancelled"
+        coop_completed = True
+        return "done"
+
+    def cancel_callback() -> None:
+        nonlocal was_cancelled
+        was_cancelled = True
+        cancel_evt.set()
+
+    t0 = time.perf_counter()
+    with pytest.raises(TimeoutError) as exc_info:
+        ablation._execute_cell_with_deadline(
+            cooperative_worker,
+            exec_time=1.0,
+            cancel_event=cancel_evt,
+            cancel_callback=cancel_callback,
+        )
+
+    elapsed = time.perf_counter() - t0
+    # Elapsed time must be bounded: strictly less than 1.5s for 1.0s deadline
+    assert 1.0 <= elapsed < 1.5
+    assert "worker_stopped=True" in str(exc_info.value)
+    assert was_cancelled
+    assert cancel_evt.is_set()
+    assert not coop_completed
+
+    # Test 2: Uncooperative blocking loop worker without cancel event
+    uncoop_completed = False
+
+    def uncooperative_worker() -> str:
+        nonlocal uncoop_completed
+        for _ in range(200):
+            time.sleep(0.01)
+        uncoop_completed = True
+        return "done"
+
+    t1 = time.perf_counter()
+    with pytest.raises(TimeoutError) as exc_info2:
+        ablation._execute_cell_with_deadline(
+            uncooperative_worker,
+            exec_time=0.1,
+        )
+
+    elapsed2 = time.perf_counter() - t1
+    assert 0.1 <= elapsed2 < 0.5
+    assert "worker_stopped=True" in str(exc_info2.value)
+    assert not uncoop_completed
+
+
+def test_ablation_native_blocked_worker_unconfirmed_exit_and_halt() -> None:
+    """A worker blocked outside Python evaluation must be reported as unconfirmed exit."""
+    import threading
+    import time
+
+    native_lock = threading.Lock()
+    native_lock.acquire()
+
+    def native_blocked_worker() -> str:
+        native_lock.acquire()
+        return "done"
+
+    t0 = time.perf_counter()
+    with pytest.raises(TimeoutError) as exc_info:
+        ablation._execute_cell_with_deadline(
+            native_blocked_worker,
+            exec_time=0.1,
+        )
+
+    elapsed = time.perf_counter() - t0
+    assert 0.1 <= elapsed < 0.6
+    assert "worker_stopped=False" in str(exc_info.value) or "UNCONFIRMED_EXIT" in str(exc_info.value)
+
+    native_lock.release()
+
+
+def test_ablation_blocking_cancellation_callback() -> None:
+    """A blocking cancellation callback must not freeze the caller or delay timeout publication."""
+    import threading
+    import time
+
+    cancel_evt = threading.Event()
+    callback_lock = threading.Lock()
+    callback_lock.acquire()
+
+    def blocking_callback() -> None:
+        callback_lock.acquire()
+
+    def slow_worker() -> str:
+        cancel_evt.wait(timeout=2.0)
+        return "done"
+
+    t0 = time.perf_counter()
+    with pytest.raises(TimeoutError) as exc_info:
+        ablation._execute_cell_with_deadline(
+            slow_worker,
+            exec_time=0.1,
+            cancel_event=cancel_evt,
+            cancel_callback=blocking_callback,
+        )
+
+    elapsed = time.perf_counter() - t0
+    assert 0.1 <= elapsed < 0.6
+    assert "deadline exceeded" in str(exc_info.value).lower()
+
+    callback_lock.release()
+
+
+def test_run_cell_with_actual_crew_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    """run_cell must execute successfully using the actual Crew class without Pydantic validation errors."""
+    from crewai import Agent, Crew, Task
+    from crewai.tasks.task_output import TaskOutput
+
+    collection = _collection()
+    agent = Agent(role="Test Agent", goal="Goal", backstory="Backstory")
+    task = Task(name="monolith_report_task", description="Desc", expected_output="Exp", agent=agent)
+    actual_crew = Crew(agents=[agent], tasks=[task])
+
+    dummy_output = TaskOutput(
+        description="Desc",
+        raw="# Executive Summary\nTest content",
+        agent="Test Agent",
+    )
+    monkeypatch.setattr(
+        Crew,
+        "kickoff",
+        lambda self, inputs=None: SimpleNamespace(tasks_output=[dummy_output]),
+    )
+
+    monkeypatch.setattr(
+        ablation,
+        "_fixture",
+        lambda *args: (collection, {"sha256_16": "fixture-digest"}),
+    )
+    monkeypatch.setattr(ablation.benchmark_fixtures, "age_days", lambda num: 1.0)
+    monkeypatch.setattr(
+        ablation,
+        "build_variant_crew",
+        lambda *args, **kwargs: (actual_crew, "monolith_report_task"),
+    )
+
+    output_root = Path(__file__).parents[1] / "outputs"
+    with tempfile.TemporaryDirectory(prefix="test-actual-crew-", dir=output_root) as raw:
+        root = Path(raw)
+        cell = _cell("monolith")
+
+        # 1. With max_execution_time enabled
+        meta1 = ablation.run_cell(
+            cell,
+            experiment_id="test_actual_crew_exp1",
+            experiment_root=root,
+            commit_sha="test_commit",
+            max_execution_time=10,
+        )
+        assert meta1["status"] == "success"
+
+        # 2. Without max_execution_time
+        monkeypatch.delenv("ABLATION_MAX_EXECUTION_TIME", raising=False)
+        meta2 = ablation.run_cell(
+            cell,
+            experiment_id="test_actual_crew_exp2",
+            experiment_root=root,
+            commit_sha="test_commit",
+            max_execution_time=None,
+        )
+        assert meta2["status"] == "success"
+
+
+def test_full_integration_unconfirmed_exit_halts_main_batch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Full integration: unconfirmed worker exit sets error_timeout_unconfirmed and halts main()."""
+    collection = _collection()
+    native_lock = threading.Lock()
+    native_lock.acquire()
+
+    def blocked_kickoff(inputs=None):
+        native_lock.acquire()
+        return SimpleNamespace(tasks_output=[])
+
+    class UnconfirmedCrew:
+        tasks: list[object] = []
+        agents: list[object] = []
+
+        def kickoff(self, inputs=None):
+            return blocked_kickoff(inputs)
+
+    unconfirmed_crew = UnconfirmedCrew()
+
+    monkeypatch.setattr(
+        ablation,
+        "_fixture",
+        lambda *args: (collection, {"sha256_16": "fixture-digest"}),
+    )
+    monkeypatch.setattr(ablation.benchmark_fixtures, "age_days", lambda num: 1.0)
+    monkeypatch.setattr(
+        ablation,
+        "build_variant_crew",
+        lambda *args, **kwargs: (unconfirmed_crew, "monolith_report_task"),
+    )
+    monkeypatch.setattr(
+        ablation,
+        "preflight_fixtures",
+        lambda cases: {"03": {"sha256_16": "fixture-digest"}},
+    )
+    monkeypatch.setattr(ablation, "_commit_sha", lambda: "mockedcommit")
+
+    output_root = Path(__file__).parents[1] / "outputs"
+    with tempfile.TemporaryDirectory(prefix="test-unconfirmed-halt-", dir=output_root) as raw:
+        root = Path(raw)
+        monkeypatch.setattr(ablation, "ABLATION_ROOT", root)
+
+        try:
+            exit_code = ablation.main(["--execute", "--pilot", "--max-execution-time", "1"])
+            assert exit_code == 0
+
+            exp_dirs = list(root.glob("*"))
+            assert len(exp_dirs) == 1
+            cell_meta_files = list(exp_dirs[0].glob("**/meta.json"))
+            assert len(cell_meta_files) == 1
+
+            meta_data = json.loads(cell_meta_files[0].read_text(encoding="utf-8"))
+            assert meta_data["status"] == "error_timeout_unconfirmed"
+            assert meta_data.get("usage_is_time_incomplete") is True
+            if "usage" in meta_data and isinstance(meta_data["usage"], dict):
+                assert meta_data["usage"]["cost_complete"] is False
+        finally:
+            native_lock.release()
+
+
+def test_integration_blocking_cancellation_callback_halts_batch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Outer worker times out and its cancellation callback blocks indefinitely; main() must set unconfirmed status and halt."""
+    import time
+
+    collection = _collection()
+    callback_gate = threading.Lock()
+    callback_gate.acquire()
+
+    def blocking_cancel_cb() -> None:
+        callback_gate.acquire()
+
+    class StalledCrewWithBlockingCancel:
+        tasks: list[object] = []
+        agents: list[object] = []
+
+        def cancel(self) -> None:
+            blocking_cancel_cb()
+
+        def kickoff(self, inputs=None):
+            time.sleep(2.0)
+            return SimpleNamespace(tasks_output=[])
+
+    crew_obj = StalledCrewWithBlockingCancel()
+
+    monkeypatch.setattr(
+        ablation,
+        "_fixture",
+        lambda *args: (collection, {"sha256_16": "fixture-digest"}),
+    )
+    monkeypatch.setattr(ablation.benchmark_fixtures, "age_days", lambda num: 1.0)
+    monkeypatch.setattr(
+        ablation,
+        "build_variant_crew",
+        lambda *args, **kwargs: (crew_obj, "monolith_report_task"),
+    )
+    monkeypatch.setattr(
+        ablation,
+        "preflight_fixtures",
+        lambda cases: {"03": {"sha256_16": "fixture-digest"}},
+    )
+    monkeypatch.setattr(ablation, "_commit_sha", lambda: "mockedcommit")
+
+    output_root = Path(__file__).parents[1] / "outputs"
+    with tempfile.TemporaryDirectory(prefix="test-blocking-cancel-halt-", dir=output_root) as raw:
+        root = Path(raw)
+        monkeypatch.setattr(ablation, "ABLATION_ROOT", root)
+
+        try:
+            exit_code = ablation.main(["--execute", "--pilot", "--max-execution-time", "1"])
+            assert exit_code == 0
+
+            exp_dirs = list(root.glob("*"))
+            assert len(exp_dirs) == 1
+            cell_meta_files = list(exp_dirs[0].glob("**/meta.json"))
+            assert len(cell_meta_files) == 1
+
+            meta_data = json.loads(cell_meta_files[0].read_text(encoding="utf-8"))
+            assert meta_data["status"] == "error_timeout_unconfirmed"
+            assert meta_data.get("usage_is_time_incomplete") is True
+            if "usage" in meta_data and isinstance(meta_data["usage"], dict):
+                assert meta_data["usage"]["cost_complete"] is False
+        finally:
+            callback_gate.release()
+
+
+def test_integration_active_child_thread_halts_batch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Outer worker exits quickly but leaves an active spawned child thread; main() must set unconfirmed status and halt."""
+    collection = _collection()
+    child_gate = threading.Lock()
+    child_gate.acquire()
+
+    class SpawnChildCrew:
+        tasks: list[object] = []
+        agents: list[object] = []
+
+        def kickoff(self, inputs=None):
+            def background_worker():
+                child_gate.acquire()
+
+            t = threading.Thread(target=background_worker, daemon=True)
+            t.start()
+            return SimpleNamespace(tasks_output=[])
+
+    crew_obj = SpawnChildCrew()
+
+    monkeypatch.setattr(
+        ablation,
+        "_fixture",
+        lambda *args: (collection, {"sha256_16": "fixture-digest"}),
+    )
+    monkeypatch.setattr(ablation.benchmark_fixtures, "age_days", lambda num: 1.0)
+    monkeypatch.setattr(
+        ablation,
+        "build_variant_crew",
+        lambda *args, **kwargs: (crew_obj, "monolith_report_task"),
+    )
+    monkeypatch.setattr(
+        ablation,
+        "preflight_fixtures",
+        lambda cases: {"03": {"sha256_16": "fixture-digest"}},
+    )
+    monkeypatch.setattr(ablation, "_commit_sha", lambda: "mockedcommit")
+
+    output_root = Path(__file__).parents[1] / "outputs"
+    with tempfile.TemporaryDirectory(prefix="test-child-thread-halt-", dir=output_root) as raw:
+        root = Path(raw)
+        monkeypatch.setattr(ablation, "ABLATION_ROOT", root)
+
+        try:
+            exit_code = ablation.main(["--execute", "--pilot", "--max-execution-time", "1"])
+            assert exit_code == 0
+
+            exp_dirs = list(root.glob("*"))
+            assert len(exp_dirs) == 1
+            cell_meta_files = list(exp_dirs[0].glob("**/meta.json"))
+            assert len(cell_meta_files) == 1
+
+            meta_data = json.loads(cell_meta_files[0].read_text(encoding="utf-8"))
+            assert meta_data["status"] == "error_timeout_unconfirmed"
+            assert meta_data.get("usage_is_time_incomplete") is True
+            if "usage" in meta_data and isinstance(meta_data["usage"], dict):
+                assert meta_data["usage"]["cost_complete"] is False
+        finally:
+            child_gate.release()
+
+
+

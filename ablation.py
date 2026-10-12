@@ -7,11 +7,13 @@ typo must not turn into ninety paid model runs.
 
 
 import argparse
+import ctypes
 import hashlib
 import json
 import os
 import re
 import subprocess
+import threading
 import time
 import traceback
 from dataclasses import dataclass
@@ -308,9 +310,33 @@ def _max_rpm() -> int:
         raise ValueError(f"MAX_RPM environment variable must be an integer, got {raw!r}") from None
 
 
+def _max_execution_time(override: int | float | None = None) -> int | None:
+    """Resolve configured cell execution deadline in seconds.
+
+    Checks explicit CLI override, falling back to ABLATION_MAX_EXECUTION_TIME.
+    Returns None if unconfigured or <= 0.
+    """
+
+    if override is not None:
+        if override <= 0:
+            return None
+        return int(override)
+    raw = os.getenv("ABLATION_MAX_EXECUTION_TIME", "").strip()
+    if not raw:
+        return None
+    try:
+        val = int(raw)
+        return val if val > 0 else None
+    except ValueError:
+        raise ValueError(
+            f"ABLATION_MAX_EXECUTION_TIME environment variable must be an integer, got {raw!r}"
+        ) from None
+
+
 def build_variant_crew(
     variant: str,
     collection: Any,
+    max_execution_time: int | float | None = None,
 ) -> tuple[Any, str]:
     """Build one treatment while leaving the production control untouched."""
 
@@ -318,24 +344,29 @@ def build_variant_crew(
     from academic_agent.llm_config import create_llm
     from crewai import Agent, Crew, Process, Task
 
+    exec_time = _max_execution_time(max_execution_time)
+
     if variant == "monolith":
-        agent = Agent(
-            role="Academic Commercialization Generalist",
-            goal=(
+        agent_kwargs: dict[str, Any] = {
+            "role": "Academic Commercialization Generalist",
+            "goal": (
                 "Produce an evidence-bounded investment-facing commercialization "
                 "assessment directly from validated academic, patent, and market sources."
             ),
-            backstory=(
+            "backstory": (
                 "You combine technology-transfer, patent-landscape, and market-analysis "
                 "skills, but you have no external tools and may use only the supplied registry."
             ),
             # Match the production report writer's free-text LLM construction
             # exactly. Forcing temperature zero here would confound topology
             # with a model-setting change even though it looks more deterministic.
-            llm=create_llm(),
-            verbose=True,
-            allow_delegation=False,
-        )
+            "llm": create_llm(),
+            "verbose": True,
+            "allow_delegation": False,
+        }
+        if exec_time is not None:
+            agent_kwargs["max_execution_time"] = exec_time
+        agent = Agent(**agent_kwargs)
         task = Task(
             name="monolith_report_task",
             description=_MONOLITH_DESCRIPTION,
@@ -357,6 +388,11 @@ def build_variant_crew(
         )
 
     production = AcademicAgent(collection).crew()
+    if exec_time is not None:
+        for ag in getattr(production, "agents", []):
+            if hasattr(ag, "max_execution_time"):
+                ag.max_execution_time = exec_time
+
     if variant == "full":
         return production, "commercialization_report_task"
     if variant == "specialists_writer":
@@ -526,14 +562,126 @@ def _reusable_cell_meta(
     return None
 
 
+def _interrupt_worker_thread(ident: int | None) -> None:
+    """Inject TimeoutError asynchronously into worker thread bytecode evaluation."""
+    if ident is None:
+        return
+    res = ctypes.pythonapi.PyThreadState_SetAsyncExc(
+        ctypes.c_ulong(ident),
+        ctypes.py_object(TimeoutError),
+    )
+    if res > 1:
+        # If set failed or affected multiple threads, clear exception immediately
+        ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(ident), None)
+
+
+def _execute_cell_with_deadline(
+    kickoff_fn: Callable[[], Any],
+    *,
+    exec_time: float | int,
+    cancel_event: threading.Event | None = None,
+    cancel_callback: Callable[[], None] | None = None,
+) -> tuple[Any, bool]:
+    """Execute ``kickoff_fn`` within ``exec_time`` seconds with deterministic cleanup.
+
+    Returns a tuple ``(result, worker_stopped)``.
+
+    If execution exceeds ``exec_time``:
+    1. Stage 1 (Cooperative): Actively signals ``cancel_event`` (if provided). If ``cancel_callback``
+       is provided, invokes it within a bounded thread (max 0.15s) so a stuck callback cannot block
+       the caller.
+    2. Stage 2 (Preemptive Interruption): If worker thread remains alive, asynchronously injects
+       ``TimeoutError`` into the worker thread's bytecode evaluation loop via ``PyThreadState_SetAsyncExc``.
+    3. Verification: Joins the worker thread with a short bounded timeout (0.1s) and checks
+       ``worker_stopped = not worker_thread.is_alive()``.
+    4. Diagnostics: Raises ``TimeoutError`` containing deadline and ``worker_stopped`` status.
+       If ``worker_stopped`` is False, caller records status ``error_timeout_unconfirmed`` and halts batch.
+
+    Guarantees & Boundaries:
+    - **Local Execution Termination & Resource Cleanup**: Guarantees bounded local wait time
+      and local task resource cleanup upon deadline expiration. Unconfirmed exits set
+      ``status="error_timeout_unconfirmed"`` and stop the batch run to prevent concurrent paid runs.
+    - **Remote Provider Cancellation & Token Consumption**: Once an upstream HTTP request has been
+      dispatched to a remote LLM provider, server-side generation cancellation and billing/token
+      consumption depend on the remote provider's API behavior and are not guaranteed by local execution
+      termination alone.
+    """
+
+    timeout_val = float(exec_time)
+    evt = cancel_event or threading.Event()
+    container: dict[str, Any] = {"result": None, "exception": None}
+
+    initial_threads = set(threading.enumerate())
+
+    def _worker() -> None:
+        try:
+            container["result"] = kickoff_fn()
+        except Exception as exc:
+            container["exception"] = exc
+
+    worker_thread = threading.Thread(target=_worker, daemon=True)
+    worker_thread.start()
+    worker_thread.join(timeout=timeout_val)
+
+    cb_thread: threading.Thread | None = None
+    cell_threads = (set(threading.enumerate()) - initial_threads) - {worker_thread}
+    has_alive_cell_threads = any(t.is_alive() for t in cell_threads)
+
+    if worker_thread.is_alive() or has_alive_cell_threads:
+        # Stage 1: Cooperative signal & bounded cancellation callback invocation
+        evt.set()
+        if cancel_callback is not None:
+            cb_thread = threading.Thread(target=cancel_callback, daemon=True)
+            cb_thread.start()
+            cb_thread.join(timeout=0.15)
+
+        worker_thread.join(timeout=0.1)
+
+        # Stage 2: Asynchronous bytecode thread interruption if still running
+        if worker_thread.is_alive() and worker_thread.ident is not None:
+            _interrupt_worker_thread(worker_thread.ident)
+            worker_thread.join(timeout=0.1)
+
+        cb_alive = cb_thread.is_alive() if cb_thread is not None else False
+        remaining_cell_threads = set(threading.enumerate()) - initial_threads
+        any_alive = any(t.is_alive() for t in remaining_cell_threads) or cb_alive
+
+        worker_stopped = not any_alive
+        status_flag = (
+            "worker_stopped=True"
+            if worker_stopped
+            else "worker_stopped=False [UNCONFIRMED_EXIT]"
+        )
+        raise TimeoutError(
+            f"Ablation cell execution deadline exceeded ({timeout_val}s); {status_flag}"
+        )
+
+    if container["exception"] is not None:
+        raise container["exception"]
+
+    return container["result"], True
+
+
 def run_cell(
     cell: ScheduleCell,
     *,
     experiment_id: str,
     experiment_root: Path,
     commit_sha: str,
+    max_execution_time: int | float | None = None,
 ) -> dict[str, Any]:
-    """Run and persist one paid cell; failures retain usage and diagnostics."""
+    """Run and persist one paid cell; failures retain usage and diagnostics.
+
+    Execution Deadline Guarantees:
+    - Local execution termination & resource cleanup: When max_execution_time is set,
+      bounded local wait time (elapsed_seconds < deadline + margin) and local worker
+      cleanup are attempted. If local exit cannot be confirmed, status="error_timeout_unconfirmed"
+      is recorded, usage_is_time_incomplete=True is marked, and the main batch loop halts.
+    - Remote provider cancellation & token consumption: Once an HTTP request is
+      dispatched to an external LLM provider, server-side generation cancellation
+      and token/cost consumption depend on provider API behavior and are not
+      guaranteed by local termination alone.
+    """
 
     collection, fixture_entry = _fixture(cell.num, cell.topic)
     cell_dir = _cell_directory(experiment_root, cell)
@@ -569,10 +717,34 @@ def run_cell(
     recorder = GuardrailRecorder()
     report_task_name = ""
     start = time.perf_counter()
+    exec_time = _max_execution_time(max_execution_time)
     try:
-        crew_obj, report_task_name = build_variant_crew(cell.variant, collection)
+        if exec_time is not None:
+            crew_obj, report_task_name = build_variant_crew(
+                cell.variant, collection, max_execution_time=exec_time
+            )
+        else:
+            crew_obj, report_task_name = build_variant_crew(cell.variant, collection)
         recorder.instrument(crew_obj.tasks)
-        result = crew_obj.kickoff(inputs=collection.crew_inputs())
+
+        cancel_event = getattr(crew_obj, "cancel_event", None)
+        if not isinstance(cancel_event, threading.Event):
+            cancel_event = threading.Event()
+
+        cancel_cb = getattr(crew_obj, "cancel", None)
+        if not callable(cancel_cb):
+            cancel_cb = None
+
+        if exec_time is not None and exec_time > 0:
+            result, _worker_stopped = _execute_cell_with_deadline(
+                lambda: crew_obj.kickoff(inputs=collection.crew_inputs()),
+                exec_time=exec_time,
+                cancel_event=cancel_event,
+                cancel_callback=cancel_cb,
+            )
+        else:
+            result = crew_obj.kickoff(inputs=collection.crew_inputs())
+
         task_outputs = list(getattr(result, "tasks_output", None) or [])
         draft, delivered = select_report_outputs(cell.variant, task_outputs)
         if not delivered:
@@ -608,13 +780,24 @@ def run_cell(
         )
         meta["status"] = "success"
     except Exception as exc:  # noqa: BLE001 - one failed cell must not erase the batch
-        meta["status"] = "error_crew"
+        exc_str = str(exc)
+        if isinstance(exc, TimeoutError) or "deadline exceeded" in exc_str.lower():
+            if "worker_stopped=false" in exc_str.lower() or "unconfirmed_exit" in exc_str.lower():
+                meta["status"] = "error_timeout_unconfirmed"
+            else:
+                meta["status"] = "error_timeout"
+        else:
+            meta["status"] = "error_crew"
         meta["error"] = f"{type(exc).__name__}: {exc}"[:2_000]
         (cell_dir / "error.log").write_text(traceback.format_exc(), encoding="utf-8")
     finally:
         meta["elapsed_seconds"] = round(time.perf_counter() - start, 3)
         if crew_obj is not None:
             meta["usage"] = collect_usage(crew_obj).as_dict()
+        if meta.get("status") == "error_timeout_unconfirmed":
+            meta["usage_is_time_incomplete"] = True
+            if "usage" in meta and isinstance(meta["usage"], dict):
+                meta["usage"]["cost_complete"] = False
         meta["guardrails"] = recorder.summaries()
         meta["report_guardrail"] = recorder.task_summary(report_task_name)
 
@@ -655,6 +838,18 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "cross it, so this is a stop rule rather than a hard provider cap"
         ),
     )
+    parser.add_argument(
+        "--max-execution-time",
+        type=int,
+        default=None,
+        metavar="SECONDS",
+        help=(
+            "overall cell execution deadline in seconds (overrides ABLATION_MAX_EXECUTION_TIME). "
+            "Guarantees bounded local execution wait time and local worker cleanup attempts; "
+            "unconfirmed thread exits set error_timeout_unconfirmed and halt paid batch execution; "
+            "remote LLM provider token/cost consumption depends on provider API behavior."
+        ),
+    )
     args = parser.parse_args(argv)
     if args.repeat is not None and args.repeat < 1:
         parser.error("--repeat must be at least 1")
@@ -662,6 +857,8 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error("--pause-seconds must not be negative")
     if args.stop_after_usd is not None and args.stop_after_usd <= 0:
         parser.error("--stop-after-usd must be positive")
+    if args.max_execution_time is not None and args.max_execution_time <= 0:
+        parser.error("--max-execution-time must be positive")
     if (args.pilot or args.full) and args.only:
         parser.error("--only cannot be combined with --pilot or --full")
     if args.execute and not (args.pilot or args.full or args.only):
@@ -752,6 +949,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 experiment_id=experiment_id,
                 experiment_root=experiment_root,
                 commit_sha=commit_sha,
+                max_execution_time=args.max_execution_time,
             )
         usage = meta.get("usage") or {}
         cost = usage.get("cost_usd")
@@ -763,6 +961,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"{meta['elapsed_seconds']}s  observed cost=${cumulative_cost:.4f}",
             flush=True,
         )
+
+        if meta.get("status") == "error_timeout_unconfirmed":
+            print(
+                "Stopping: worker exit was unconfirmed, halting paid study to prevent concurrent runs.",
+                flush=True,
+            )
+            break
 
         if args.stop_after_usd is not None:
             if complete is not True:
