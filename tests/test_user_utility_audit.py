@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from user_utility_audit import (
+from scripts.audits.user_utility_audit import (
     FORM_FIELDS,
     PROFILE_FIELDS,
     UtilityAuditError,

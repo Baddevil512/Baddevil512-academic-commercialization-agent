@@ -16,7 +16,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import mock
 
-import regulator_title_audit
+from scripts.audits import regulator_title_audit
 from academic_agent.evidence import EvidenceSource
 from academic_agent.source_pipeline import SourceCollection
 

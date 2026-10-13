@@ -16,7 +16,7 @@ from academic_agent.report_evidence_catalog_followup import (
     MAX_CALLBACK_BYTES, MAX_CATALOG_BYTES, METHOD_ID, build_catalog, run_catalog_followup,
 )
 from academic_agent.report_evidence_snapshot import ReportEvidenceSnapshot, SnapshotSource
-from report_evidence_catalog_demo import synthetic_snapshot
+from scripts.demos.report_evidence_catalog_demo import synthetic_snapshot
 
 
 def canonical(value):
@@ -638,8 +638,8 @@ print(json.dumps({"constructed": True, "attempts": attempts}))
 def test_demo_actual_stdout_with_provider_network_key_and_file_inputs_blocked():
     """Exercise the real demo with denied capabilities, not a self-declared offline label."""
     completed = _run_guarded_child(r'''
-sys.argv = ["report_evidence_catalog_demo.py"]
-runpy.run_path("report_evidence_catalog_demo.py", run_name="__main__")
+sys.argv = ["scripts/demos/report_evidence_catalog_demo.py"]
+runpy.run_path("scripts/demos/report_evidence_catalog_demo.py", run_name="__main__")
 assert not attempts, attempts
 ''')
     assert completed.returncode == 0, completed.stderr
@@ -656,7 +656,7 @@ assert not attempts, attempts
 @pytest.mark.parametrize("argument", ["--help", "--api-key", "some-snapshot.json"])
 def test_demo_refuses_all_cli_arguments(argument):
     """The offline entry cannot silently accept a key, path or future live option."""
-    completed = subprocess.run([sys.executable, "report_evidence_catalog_demo.py", argument],
+    completed = subprocess.run([sys.executable, "scripts/demos/report_evidence_catalog_demo.py", argument],
                                cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True,
                                encoding="utf-8", timeout=30, check=False)
     assert completed.returncode != 0 and completed.stdout == ""

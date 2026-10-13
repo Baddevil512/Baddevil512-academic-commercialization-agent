@@ -120,7 +120,7 @@ Replace `N` with the one chosen reviewer count and choose a new output path;
 summaries are immutable by design:
 
 ```bash
-uv run python user_utility_audit.py summarize \
+uv run python -m scripts.audits.user_utility_audit summarize \
   outputs/user-utility-audit/20260822-options/for-N-reviewers \
   outputs/user-utility-audit/20260822-private/for-N-reviewers-answer-key.json \
   outputs/user-utility-audit/20260822-private/final-for-N-reviewers.json

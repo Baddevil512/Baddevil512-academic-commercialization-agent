@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from target_user_pilot import (
+from scripts.audits.target_user_pilot import (
     AI_USE_LABELS,
     BASELINE_FIELDS,
     BLOCKING_ERROR_LABELS,

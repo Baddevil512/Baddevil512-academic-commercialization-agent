@@ -19,7 +19,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-import patent_relevance_eval as patent_eval
+from scripts.audits import patent_relevance_eval as patent_eval
 
 
 Action = Literal["KEEP", "REVIEW", "DROP"]
