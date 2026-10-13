@@ -418,8 +418,8 @@ def audit(event, args):
         raise RuntimeError("socket operation blocked")
 sys.meta_path.insert(0, BlockImports())
 sys.addaudithook(audit)
-sys.argv = ["report_evidence_followup_demo.py"]
-runpy.run_path("report_evidence_followup_demo.py", run_name="__main__")
+sys.argv = ["scripts/demos/report_evidence_followup_demo.py"]
+runpy.run_path("scripts/demos/report_evidence_followup_demo.py", run_name="__main__")
 assert not attempts, attempts
 '''
     completed = subprocess.run([sys.executable, "-c", child], cwd=Path(__file__).resolve().parents[1],

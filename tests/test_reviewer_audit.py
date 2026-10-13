@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-import reviewer_audit
+from scripts.audits import reviewer_audit
 
 
 def _write_cell(

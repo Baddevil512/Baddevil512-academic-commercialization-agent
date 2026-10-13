@@ -41,7 +41,7 @@ which workflow generated the report. There is no pass threshold in this pilot.
 The command is zero-network and makes no model or search call:
 
 ```bash
-uv run python target_user_pilot.py prepare \
+uv run python -m scripts.audits.target_user_pilot prepare \
   outputs/ablation/20260821T234300Z-7dd894ef \
   outputs/target-user-pilot/20260826-packet \
   outputs/target-user-pilot-private/20260826-source-lock.json
@@ -73,7 +73,7 @@ canonical Stage-1 directory. Preserve the reviewer ID and topic text exactly.
 Then run, for example:
 
 ```bash
-uv run python target_user_pilot.py materialize \
+uv run python -m scripts.audits.target_user_pilot materialize \
   outputs/ablation/20260821T234300Z-7dd894ef \
   outputs/target-user-pilot/20260826-packet \
   outputs/target-user-pilot-private/20260826-source-lock.json \
@@ -115,7 +115,7 @@ data, and do not add a third slot after seeing a follow-up.
 After returned follow-ups are copied into the canonical Stage-2 directories:
 
 ```bash
-uv run python target_user_pilot.py summarize \
+uv run python -m scripts.audits.target_user_pilot summarize \
   outputs/ablation/20260821T234300Z-7dd894ef \
   outputs/target-user-pilot/20260826-packet \
   outputs/target-user-pilot-private/20260826-source-lock.json \

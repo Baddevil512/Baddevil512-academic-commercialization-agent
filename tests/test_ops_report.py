@@ -19,12 +19,16 @@ from __future__ import annotations
 
 import io
 import json
+import os
+import subprocess
+import sys
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
-import ops_report
+from scripts import ops_report
 
 
 class CauseExtractionTests(unittest.TestCase):
@@ -253,3 +257,98 @@ class CollectionTests(unittest.TestCase):
             root = Path(tmp)
             self._run_dir(root, "20260714T041910Z-abc123def0", {"topic": "x", "done": True})
             self.assertEqual(ops_report.collect(root)[0]["date"], "2026-07-14")
+
+
+class CommandLineTests(unittest.TestCase):
+
+    _PROJECT_ROOT = Path(__file__).resolve().parent.parent
+    _SCRIPT = _PROJECT_ROOT / "scripts" / "ops_report.py"
+
+    def _environment(self) -> dict[str, str]:
+        environment = os.environ.copy()
+        environment.pop("PYTHONPATH", None)
+        environment["PYTHON_DOTENV_DISABLED"] = "1"
+        return environment
+
+    def _write_run(self, root: Path) -> None:
+        directory = root / "20260810T041910Z-abc123def0"
+        directory.mkdir(parents=True)
+        (directory / "status.json").write_text(
+            json.dumps({"topic": "synthetic test topic", "done": True}),
+            encoding="utf-8",
+        )
+
+    def test_default_root_is_the_project_outputs_directory(self):
+        """The moved script must not resolve its default against scripts/."""
+        with patch.object(ops_report, "collect", return_value=[]) as collect:
+            with patch.object(sys, "argv", ["ops_report.py"]):
+                ops_report.main()
+        self.assertEqual(collect.call_args.args[0], self._PROJECT_ROOT / "outputs")
+
+    def test_direct_script_keeps_benchmark_comparison_from_root_and_other_cwds(self):
+        """The CLI needs both project root and src even outside the repository."""
+        with TemporaryDirectory() as tmp:
+            temporary = Path(tmp)
+            root_runs = temporary / "root-runs"
+            other_cwd = temporary / "other-cwd"
+            relative_runs = other_cwd / "relative-runs"
+            other_cwd.mkdir()
+            self._write_run(root_runs)
+            self._write_run(relative_runs)
+
+            root_result = subprocess.run(
+                [sys.executable, str(self._SCRIPT), "--root", str(root_runs)],
+                cwd=self._PROJECT_ROOT,
+                env=self._environment(),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=30,
+                check=False,
+            )
+            other_result = subprocess.run(
+                [sys.executable, str(self._SCRIPT), "--root", "relative-runs"],
+                cwd=other_cwd,
+                env=self._environment(),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=30,
+                check=False,
+            )
+        for result in (root_result, other_result):
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("1 run(s)", result.stdout)
+            self.assertIn("Benchmark covers:", result.stdout)
+
+    def test_missing_project_root_injection_loses_the_benchmark_comparison(self):
+        """Defect control: removing ROOT from sys.path must lose the comparison."""
+        with TemporaryDirectory() as tmp:
+            temporary = Path(tmp)
+            runs = temporary / "runs"
+            other_cwd = temporary / "other-cwd"
+            other_cwd.mkdir()
+            self._write_run(runs)
+            child = """
+import pathlib
+import sys
+script = pathlib.Path(sys.argv[1])
+source = script.read_text(encoding=\"utf-8\")
+source = source.replace(\"sys.path.insert(0, str(ROOT))\\n\", \"\")
+sys.argv = [str(script), \"--root\", sys.argv[2]]
+namespace = {\"__name__\": \"__main__\", \"__file__\": str(script)}
+exec(compile(source, str(script), \"exec\"), namespace)
+"""
+            result = subprocess.run(
+                [sys.executable, "-c", child, str(self._SCRIPT), str(runs)],
+                cwd=other_cwd,
+                env=self._environment(),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=30,
+                check=False,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("1 run(s)", result.stdout)
+        self.assertNotIn("Benchmark covers:", result.stdout)

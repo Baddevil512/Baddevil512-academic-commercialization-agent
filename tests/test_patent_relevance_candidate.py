@@ -4,12 +4,34 @@ from __future__ import annotations
 
 import csv
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
-import patent_relevance_candidate as candidate
-import patent_relevance_eval as patent_eval
+from scripts.audits import patent_relevance_candidate as candidate
+from scripts.audits import patent_relevance_eval as patent_eval
+
+
+def test_candidate_module_help_imports_its_paired_audit():
+    """The relocated CLI must resolve its paired audit as a package import."""
+    environment = os.environ.copy()
+    environment.pop("PYTHONPATH", None)
+    environment["PYTHON_DOTENV_DISABLED"] = "1"
+    completed = subprocess.run(
+        [sys.executable, "-m", "scripts.audits.patent_relevance_candidate", "--help"],
+        cwd=Path(__file__).resolve().parent.parent,
+        env=environment,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=30,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "--challenge CHALLENGE" in completed.stdout
 
 
 def _case(

@@ -287,7 +287,7 @@ while remaining active throughout adapter construction and intercepted HTTP.
 ## Offline demonstration
 
 ```bash
-uv run python report_evidence_followup_demo.py
+uv run python scripts/demos/report_evidence_followup_demo.py
 ```
 
 The demo supplies synthetic sources and a scripted transport. It exercises the
@@ -373,7 +373,7 @@ The new entry is `run_policy_followup` in
 `academic_agent.report_evidence_guarded_followup`. Its separate demonstration is:
 
 ```bash
-uv run python report_evidence_guarded_followup_demo.py
+uv run python scripts/demos/report_evidence_guarded_followup_demo.py
 ```
 
 This uses an invented orchard-probe record and a scripted callback, accepts no
@@ -569,7 +569,7 @@ frozen executor. Metadata-only citations, invisible IDs and repeated reads fail
 before granting more evidence. Delivered evidence means supplied to the actual
 injected callback, not read bookkeeping performed before a rejected dispatch.
 
-`run_catalog_followup` and `report_evidence_catalog_demo.py` are isolated,
+`run_catalog_followup` and `scripts/demos/report_evidence_catalog_demo.py` are isolated,
 callback-only entry points. The no-argument demo is `scripted_offline`; it reads
 no credential, real report or provider. The old Qwen transports only admit up to
 five hit IDs, so they are not compatible adapters for this catalog's 32-entry
@@ -578,7 +578,7 @@ frozen files. The separate CQ protocol below freezes a new synthetic live gate;
 the scripted demo still needs no key or provider call.
 
 ```bash
-uv run python report_evidence_catalog_demo.py
+uv run python scripts/demos/report_evidence_catalog_demo.py
 ```
 
 Catalog coverage is not question relevance or semantic support. Similar titles,

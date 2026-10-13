@@ -371,8 +371,8 @@ def audit(event, args):
         raise RuntimeError("network blocked")
 sys.meta_path.insert(0, Guard())
 sys.addaudithook(audit)
-sys.argv = ["report_evidence_guarded_followup_demo.py"]
-runpy.run_path("report_evidence_guarded_followup_demo.py", run_name="__main__")
+sys.argv = ["scripts/demos/report_evidence_guarded_followup_demo.py"]
+runpy.run_path("scripts/demos/report_evidence_guarded_followup_demo.py", run_name="__main__")
 assert not attempts, attempts
 '''
     result = subprocess.run([sys.executable, "-c", child], cwd=Path(__file__).resolve().parents[1],

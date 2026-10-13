@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-import ops_report
+from scripts import ops_report
 from academic_agent.claim_grounding import _supported, check_report
 from academic_agent.run_terminal import TerminalRecord, UsageAccounting, commit_terminal_record
 from academic_agent.scoring_contract import make_scoring_guardrail

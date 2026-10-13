@@ -17,8 +17,8 @@ from unittest import mock
 
 import pytest
 
-import regulator_title_audit
-import regulator_title_recovery_candidate
+from scripts.audits import regulator_title_audit
+from scripts.audits import regulator_title_recovery_candidate
 from academic_agent.evidence import EvidenceSource
 from academic_agent.source_pipeline import SourceCollection, _web_source
 from academic_agent.source_title_recovery import recover_official_source_title

@@ -44,11 +44,14 @@ from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent / "src"))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 
-from academic_agent.run_terminal import TerminalRecordUnreadable, load_terminal_record
+# Repository and src path bootstrap must precede this project import.
+from academic_agent.run_terminal import TerminalRecordUnreadable, load_terminal_record  # noqa: E402
 
-OUTPUT_ROOT = Path(__file__).parent / "outputs"
+OUTPUT_ROOT = ROOT / "outputs"
 
 #: Run directories are <UTC timestamp>-<hex>; the benchmark writes elsewhere.
 _RUN_DIR = re.compile(r"^(\d{8})T(\d{6})Z-[0-9a-f]+$")

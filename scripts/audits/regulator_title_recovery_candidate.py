@@ -13,7 +13,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, HttpUrl, model_validator
 
 from academic_agent.source_title_recovery import recover_official_source_title
-from regulator_title_audit import authority_scope_for_url
+from scripts.audits.regulator_title_audit import authority_scope_for_url
 
 
 ExpectedAction = Literal["preserve", "recover", "reject", "out_of_scope"]

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-import patent_relevance_eval as patent_eval
+from scripts.audits import patent_relevance_eval as patent_eval
 
 
 def _patent(source_id: str, *, url: str | None = None) -> dict[str, str]:
